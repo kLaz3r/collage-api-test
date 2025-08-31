@@ -1,0 +1,17 @@
+# requirements.txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pillow==11.0.0
+numpy==1.26.2
+pydantic==2.8.0
+aiofiles==23.2.1
+
+# Optional for production deployment
+redis==5.0.1
+celery==5.3.4
+gunicorn==21.2.0
+
+# For development
+pytest==7.4.3
+httpx==0.25.0
