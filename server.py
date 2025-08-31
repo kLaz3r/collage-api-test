@@ -1,4 +1,3 @@
-# main.py
 """
 FastAPI Collage Maker Application
 A web API for creating high-resolution photo collages with masonry layout
@@ -10,17 +9,98 @@ import uuid
 import json
 import random
 import asyncio
+import re
+import tempfile
+import shutil
+import logging
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
+
+# Security imports
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except ImportError:
+    MAGIC_AVAILABLE = False
+
+# Rate limiting (simple in-memory implementation)
+from collections import defaultdict
+import time
+
+rate_limit_store = defaultdict(list)
+RATE_LIMIT_REQUESTS = 100  # requests per window
+RATE_LIMIT_WINDOW = 60  # seconds
+
+def check_rate_limit(client_ip: str) -> bool:
+    """Simple rate limiting check"""
+    now = time.time()
+    # Clean old requests
+    rate_limit_store[client_ip] = [
+        req_time for req_time in rate_limit_store[client_ip]
+        if now - req_time < RATE_LIMIT_WINDOW
+    ]
+
+    if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
+        return False
+
+    rate_limit_store[client_ip].append(now)
+    return True
+
+def validate_image_file(file_path: str) -> bool:
+    """Validate that file is actually an image using magic numbers"""
+    if not MAGIC_AVAILABLE:
+        # Fallback to basic PIL validation
+        try:
+            with Image.open(file_path) as img:
+                img.verify()
+            return True
+        except Exception:
+            return False
+
+    try:
+        mime = magic.Magic(mime=True)
+        file_type = mime.from_file(file_path)
+
+        allowed_types = [
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/bmp',
+            'image/tiff',
+            'image/webp'
+        ]
+
+        return file_type in allowed_types
+    except Exception:
+        return False
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal"""
+    # Remove any path separators and dangerous characters
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Limit length
+    filename = filename[:100]
+    return filename
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log', mode='a')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -75,6 +155,13 @@ class CollageConfig(BaseModel):
     background_color: str = Field(default="#FFFFFF")
     maintain_aspect_ratio: bool = True
     apply_shadow: bool = False
+
+    @validator('background_color')
+    def validate_color(cls, v):
+        """Validate hex color format"""
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
+            raise ValueError('Invalid hex color format - must be #RRGGBB')
+        return v
 
 class CollageJob(BaseModel):
     job_id: str
@@ -167,35 +254,163 @@ class MasonryPacker:
 
 class GridPacker:
     """Implements grid layout for images"""
-    
+
     def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
         self.spacing = spacing
-    
+
     def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
         """Pack images in a uniform grid"""
         blocks = []
         num_images = len(image_paths)
-        
+
         # Calculate grid dimensions
         cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
         rows = int(np.ceil(num_images / cols))
-        
+
         # Calculate cell dimensions
         cell_width = (self.canvas_width - (cols - 1) * self.spacing) // cols
         cell_height = (self.canvas_height - (rows - 1) * self.spacing) // rows
-        
+
         for i, path in enumerate(image_paths):
             row = i // cols
             col = i % cols
-            
+
             x = col * (cell_width + self.spacing)
             y = row * (cell_height + self.spacing)
-            
+
             block = ImageBlock(x, y, cell_width, cell_height, path)
             blocks.append(block)
-        
+
+        return blocks
+
+class RandomPacker:
+    """Implements random layout for images"""
+
+    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
+        self.canvas_width = canvas_width
+        self.canvas_height = canvas_height
+        self.spacing = spacing
+
+    def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
+        """Pack images in random positions"""
+        blocks = []
+
+        # Get image dimensions
+        images_info = []
+        for path in image_paths:
+            with Image.open(path) as img:
+                images_info.append({
+                    'path': path,
+                    'width': img.width,
+                    'height': img.height,
+                    'aspect': img.width / img.height
+                })
+
+        # Random layout with collision detection
+        max_attempts = 100
+        for img_info in images_info:
+            placed = False
+            attempts = 0
+
+            while not placed and attempts < max_attempts:
+                # Random position
+                x = random.randint(0, self.canvas_width - 200)
+                y = random.randint(0, self.canvas_height - 200)
+
+                # Random size (within reasonable bounds)
+                width = random.randint(150, min(400, self.canvas_width - x))
+                height = int(width / img_info['aspect'])
+
+                # Check if it fits vertically
+                if y + height > self.canvas_height:
+                    height = self.canvas_height - y
+                    width = int(height * img_info['aspect'])
+
+                # Check for collisions with existing blocks
+                collision = False
+                for block in blocks:
+                    if self._blocks_overlap(x, y, width, height, block):
+                        collision = True
+                        break
+
+                if not collision:
+                    block = ImageBlock(x, y, width, height, img_info['path'])
+                    blocks.append(block)
+                    placed = True
+
+                attempts += 1
+
+            # If couldn't place randomly, place in next available spot
+            if not placed:
+                x = (len(blocks) % 5) * 200
+                y = (len(blocks) // 5) * 200
+                width = min(200, self.canvas_width - x)
+                height = min(200, self.canvas_height - y)
+                block = ImageBlock(x, y, width, height, img_info['path'])
+                blocks.append(block)
+
+        return blocks
+
+    def _blocks_overlap(self, x1: int, y1: int, w1: int, h1: int, block: ImageBlock) -> bool:
+        """Check if two blocks overlap"""
+        x2, y2, w2, h2 = block.x, block.y, block.width, block.height
+        return not (x1 + w1 + self.spacing <= x2 or
+                   x2 + w2 + self.spacing <= x1 or
+                   y1 + h1 + self.spacing <= y2 or
+                   y2 + h2 + self.spacing <= y1)
+
+class SpiralPacker:
+    """Implements spiral layout for images"""
+
+    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
+        self.canvas_width = canvas_width
+        self.canvas_height = canvas_height
+        self.spacing = spacing
+
+    def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
+        """Pack images in a spiral pattern"""
+        blocks = []
+
+        # Get image dimensions
+        images_info = []
+        for path in image_paths:
+            with Image.open(path) as img:
+                images_info.append({
+                    'path': path,
+                    'width': img.width,
+                    'height': img.height,
+                    'aspect': img.width / img.height
+                })
+
+        # Sort by size for better spiral effect
+        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
+
+        # Spiral parameters
+        center_x = self.canvas_width // 2
+        center_y = self.canvas_height // 2
+        angle = 0
+        radius = 50
+        angle_step = 0.5  # radians
+        radius_step = 30
+
+        for img_info in images_info:
+            # Calculate position on spiral
+            x = int(center_x + radius * np.cos(angle) - img_info['width'] // 2)
+            y = int(center_y + radius * np.sin(angle) - img_info['height'] // 2)
+
+            # Ensure image stays within bounds
+            x = max(0, min(x, self.canvas_width - img_info['width']))
+            y = max(0, min(y, self.canvas_height - img_info['height']))
+
+            block = ImageBlock(x, y, img_info['width'], img_info['height'], img_info['path'])
+            blocks.append(block)
+
+            # Move to next position in spiral
+            angle += angle_step
+            radius += radius_step
+
         return blocks
 
 class CollageGenerator:
@@ -307,6 +522,20 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
                 config.spacing
             )
             blocks = packer.pack_images(image_paths)
+        elif config.layout_style == LayoutStyle.RANDOM:
+            packer = RandomPacker(
+                generator.canvas_width,
+                generator.canvas_height,
+                config.spacing
+            )
+            blocks = packer.pack_images(image_paths)
+        elif config.layout_style == LayoutStyle.SPIRAL:
+            packer = SpiralPacker(
+                generator.canvas_width,
+                generator.canvas_height,
+                config.spacing
+            )
+            blocks = packer.pack_images(image_paths)
         else:
             # Default to masonry
             packer = MasonryPacker(
@@ -364,13 +593,17 @@ async def create_collage(
     apply_shadow: bool = Query(default=False)
 ):
     """Create a new collage from uploaded images"""
-    
+
+    logger.info(f"Creating collage with {len(files)} files, layout: {layout_style}")
+
     # Validate file count
     if len(files) < 2:
+        logger.warning("Collage creation failed: insufficient files")
         raise HTTPException(status_code=400, detail="At least 2 images required")
     if len(files) > 100:
+        logger.warning("Collage creation failed: too many files")
         raise HTTPException(status_code=400, detail="Maximum 100 images allowed")
-    
+
     # Create job
     job_id = str(uuid.uuid4())
     job = CollageJob(
@@ -380,32 +613,40 @@ async def create_collage(
         progress=0
     )
     job_status[job_id] = job.dict()
-    
+
     # Save uploaded files
     image_paths = []
     total_size = 0
-    
+
     for file in files:
-        # Validate file type
-        if not file.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail=f"File {file.filename} is not an image")
-        
+        # Sanitize filename
+        safe_filename = sanitize_filename(file.filename or "image.jpg")
+
         # Read file
         contents = await file.read()
         total_size += len(contents)
-        
+
         # Check size limits
         if len(contents) > MAX_IMAGE_SIZE:
-            raise HTTPException(status_code=400, detail=f"File {file.filename} exceeds 10MB limit")
+            logger.warning(f"File {safe_filename} exceeds size limit")
+            raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
         if total_size > MAX_TOTAL_SIZE:
+            logger.warning("Total file size exceeds limit")
             raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
-        
-        # Save file
-        file_path = TEMP_DIR / f"{job_id}_{file.filename}"
+
+        # Save file temporarily
+        file_path = TEMP_DIR / f"{job_id}_{safe_filename}"
         with open(file_path, 'wb') as f:
             f.write(contents)
+
+        # Validate file is actually an image
+        if not validate_image_file(str(file_path)):
+            file_path.unlink()  # Clean up invalid file
+            logger.warning(f"Invalid image file: {safe_filename}")
+            raise HTTPException(status_code=400, detail=f"File {safe_filename} is not a valid image")
+
         image_paths.append(str(file_path))
-    
+
     # Create config
     config = CollageConfig(
         width_inches=width_inches,
@@ -417,10 +658,12 @@ async def create_collage(
         maintain_aspect_ratio=maintain_aspect_ratio,
         apply_shadow=apply_shadow
     )
-    
+
+    logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
+
     # Start background processing
     background_tasks.add_task(process_collage, job_id, image_paths, config)
-    
+
     return {"job_id": job_id, "status": "pending", "message": "Collage generation started"}
 
 @app.get("/api/collage/status/{job_id}")
@@ -479,11 +722,93 @@ async def cleanup_job(job_id: str):
     
     return {"message": "Job cleaned up successfully"}
 
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request, call_next):
+    # Get client IP for rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check rate limit
+    if not check_rate_limit(client_ip):
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit exceeded. Please try again later."}
+        )
+
+    start_time = datetime.now()
+    response = await call_next(request)
+    process_time = (datetime.now() - start_time).total_seconds() * 1000
+
+    logger.info(
+        f"{request.method} {request.url.path} - {response.status_code} - {process_time:.2f}ms - IP: {client_ip}"
+    )
+
+    # Add security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+
+    return response
+
 # Health check
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "timestamp": datetime.now()}
+    """Comprehensive health check endpoint"""
+    try:
+        # Check file system
+        temp_space = shutil.disk_usage(TEMP_DIR)
+        output_space = shutil.disk_usage(OUTPUT_DIR)
+
+        # Check active jobs
+        active_jobs = sum(1 for job in job_status.values()
+                         if job['status'] in [JobStatus.PENDING, JobStatus.PROCESSING])
+
+        health_status = {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0",
+            "checks": {
+                "filesystem": {
+                    "temp_dir": str(TEMP_DIR),
+                    "temp_space_gb": temp_space.free / (1024**3),
+                    "output_dir": str(OUTPUT_DIR),
+                    "output_space_gb": output_space.free / (1024**3),
+                    "healthy": temp_space.free > 1024**3 and output_space.free > 1024**3  # 1GB free
+                },
+                "jobs": {
+                    "total_jobs": len(job_status),
+                    "active_jobs": active_jobs,
+                    "healthy": active_jobs < 50  # Reasonable limit
+                },
+                "dependencies": {
+                    "magic_available": MAGIC_AVAILABLE,
+                    "healthy": True
+                }
+            }
+        }
+
+        # Determine overall health
+        all_checks_healthy = all(
+            check.get("healthy", False)
+            for check in health_status["checks"].values()
+        )
+
+        if not all_checks_healthy:
+            health_status["status"] = "unhealthy"
+            logger.warning("Health check failed", extra=health_status)
+
+        return health_status
+
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     import uvicorn

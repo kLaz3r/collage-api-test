@@ -6,6 +6,7 @@ pillow==11.0.0
 numpy==1.26.2
 pydantic==2.8.0
 aiofiles==23.2.1
+python-magic==0.4.27
 
 # Optional for production deployment
 redis==5.0.1
