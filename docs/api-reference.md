@@ -232,16 +232,45 @@ Clean up temporary files for a completed job.
 
 ### GET /health
 
-Health check endpoint.
+Comprehensive health check endpoint that monitors system status, disk space, active jobs, and dependencies.
 
 **Success Response (200):**
 
 ```json
 {
     "status": "healthy",
-    "timestamp": "2025-08-31T12:30:45.123456"
+    "timestamp": "2025-08-31T12:30:45.123456",
+    "version": "1.0.0",
+    "checks": {
+        "filesystem": {
+            "temp_dir": "/path/to/temp",
+            "temp_space_gb": 15.2,
+            "output_dir": "/path/to/outputs",
+            "output_space_gb": 25.8,
+            "healthy": true
+        },
+        "jobs": {
+            "total_jobs": 5,
+            "active_jobs": 2,
+            "healthy": true
+        },
+        "dependencies": {
+            "magic_available": true,
+            "healthy": true
+        }
+    }
 }
 ```
+
+**Response Fields:**
+
+-   `status`: Overall health status (`"healthy"` or `"unhealthy"`)
+-   `timestamp`: ISO 8601 timestamp of the health check
+-   `version`: API version
+-   `checks`: Detailed health checks for different components
+    -   `filesystem`: Disk space monitoring (requires 1GB+ free space)
+    -   `jobs`: Active job monitoring (warns if >50 active jobs)
+    -   `dependencies`: Required dependency availability
 
 ## Data Models
 
@@ -289,7 +318,17 @@ Job status and metadata.
 
 ## Rate Limiting
 
-Currently, no rate limiting is implemented. For production use, consider implementing appropriate rate limits based on your usage patterns.
+Rate limiting is implemented to prevent abuse:
+
+-   **Limit:** 100 requests per minute per IP address
+-   **Window:** 60 seconds sliding window
+-   **Response:** HTTP 429 (Too Many Requests) when limit exceeded
+
+```json
+{
+    "error": "Rate limit exceeded. Please try again later."
+}
+```
 
 ## Error Handling
 
@@ -297,7 +336,35 @@ All endpoints return appropriate HTTP status codes and JSON error messages. Comm
 
 -   **400 Bad Request:** Invalid input parameters or file constraints
 -   **404 Not Found:** Resource not found (job, file)
+-   **429 Too Many Requests:** Rate limit exceeded
 -   **500 Internal Server Error:** Server-side processing errors
+
+## Security Features
+
+The API includes several security measures:
+
+### File Upload Security
+
+-   **Magic Number Validation:** Files are validated using magic numbers to ensure they are actual images
+-   **Filename Sanitization:** Dangerous characters are removed from filenames to prevent path traversal
+-   **Size Limits:** Individual files limited to 10MB, total upload limited to 500MB
+-   **Format Validation:** Only supported image formats (JPEG, PNG, GIF, BMP, TIFF, WebP) are accepted
+
+### Request Security
+
+-   **Rate Limiting:** 100 requests per minute per IP address
+-   **Security Headers:** Automatic addition of security headers on all responses:
+    -   `X-Content-Type-Options: nosniff`
+    -   `X-Frame-Options: DENY`
+    -   `X-XSS-Protection: 1; mode=block`
+    -   `Referrer-Policy: strict-origin-when-cross-origin`
+    -   `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'`
+
+### Input Validation
+
+-   **Parameter Validation:** All input parameters are validated using Pydantic models
+-   **Hex Color Validation:** Background colors must be valid 6-digit hex codes
+-   **Range Validation:** Numeric parameters are constrained to reasonable ranges
 
 ## Content Types
 
