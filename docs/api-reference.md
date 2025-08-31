@@ -1,0 +1,305 @@
+# API Reference
+
+Complete reference for the Collage Maker API endpoints, parameters, and responses.
+
+## Base URL
+
+```
+http://localhost:8000
+```
+
+## Authentication
+
+Currently, no authentication is required for this API.
+
+## Endpoints
+
+### GET /
+
+Get API information and available endpoints.
+
+**Response:**
+
+```json
+{
+    "name": "Collage Maker API",
+    "version": "1.0.0",
+    "endpoints": {
+        "create_collage": "/api/collage/create",
+        "get_status": "/api/collage/status/{job_id}",
+        "download": "/api/collage/download/{job_id}",
+        "list_jobs": "/api/collage/jobs"
+    }
+}
+```
+
+### POST /api/collage/create
+
+Create a new collage from uploaded images.
+
+**Parameters:**
+
+| Parameter             | Type    | Required | Default | Description                                             |
+| --------------------- | ------- | -------- | ------- | ------------------------------------------------------- |
+| files                 | File[]  | Yes      | -       | Image files to include in collage (2-100 files)         |
+| width_inches          | float   | No       | 12      | Width of output collage in inches (4-48)                |
+| height_inches         | float   | No       | 18      | Height of output collage in inches (4-48)               |
+| dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                    |
+| layout_style          | string  | No       | masonry | Layout algorithm: `masonry`, `grid`, `random`, `spiral` |
+| spacing               | int     | No       | 10      | Spacing between images in pixels (0-50)                 |
+| background_color      | string  | No       | #FFFFFF | Background color as hex code                            |
+| maintain_aspect_ratio | boolean | No       | true    | Preserve original image aspect ratios                   |
+| apply_shadow          | boolean | No       | false   | Add drop shadow effects to images                       |
+
+**Request Example:**
+
+```bash
+curl -X POST "http://localhost:8000/api/collage/create" \
+  -F "files=@image1.jpg" \
+  -F "files=@image2.jpg" \
+  -F "files=@image3.jpg" \
+  -F "width_inches=16" \
+  -F "height_inches=20" \
+  -F "layout_style=masonry" \
+  -F "background_color=#F0F0F0"
+```
+
+**Success Response (200):**
+
+```json
+{
+    "job_id": "123e4567-e89b-12d3-a456-426614174000",
+    "status": "pending",
+    "message": "Collage generation started"
+}
+```
+
+**Error Responses:**
+
+-   **400 Bad Request** - Invalid parameters or file constraints
+
+    ```json
+    {
+        "detail": "At least 2 images required"
+    }
+    ```
+
+-   **400 Bad Request** - File size limits exceeded
+
+    ```json
+    {
+        "detail": "File image.jpg exceeds 10MB limit"
+    }
+    ```
+
+-   **400 Bad Request** - Invalid file type
+    ```json
+    {
+        "detail": "File document.pdf is not an image"
+    }
+    ```
+
+### GET /api/collage/status/{job_id}
+
+Get the status of a collage generation job.
+
+**Parameters:**
+
+| Parameter | Type   | Required | Description             |
+| --------- | ------ | -------- | ----------------------- |
+| job_id    | string | Yes      | UUID of the collage job |
+
+**Success Response (200):**
+
+```json
+{
+    "job_id": "123e4567-e89b-12d3-a456-426614174000",
+    "status": "processing",
+    "created_at": "2025-08-31T12:30:45.123456",
+    "completed_at": null,
+    "output_file": null,
+    "error_message": null,
+    "progress": 50
+}
+```
+
+**Status Values:**
+
+-   `pending` - Job queued for processing
+-   `processing` - Job currently being processed
+-   `completed` - Job finished successfully
+-   `failed` - Job failed with error
+
+**Error Response (404):**
+
+```json
+{
+    "detail": "Job not found"
+}
+```
+
+### GET /api/collage/download/{job_id}
+
+Download the completed collage image.
+
+**Parameters:**
+
+| Parameter | Type   | Required | Description                       |
+| --------- | ------ | -------- | --------------------------------- |
+| job_id    | string | Yes      | UUID of the completed collage job |
+
+**Success Response (200):** JPEG image file
+
+**Error Responses:**
+
+-   **404 Not Found** - Job not found
+
+    ```json
+    {
+        "detail": "Job not found"
+    }
+    ```
+
+-   **400 Bad Request** - Collage not ready
+
+    ```json
+    {
+        "detail": "Collage not ready yet"
+    }
+    ```
+
+-   **404 Not Found** - Output file missing
+    ```json
+    {
+        "detail": "Output file not found"
+    }
+    ```
+
+### GET /api/collage/jobs
+
+List all collage generation jobs.
+
+**Success Response (200):**
+
+```json
+[
+    {
+        "job_id": "123e4567-e89b-12d3-a456-426614174000",
+        "status": "completed",
+        "created_at": "2025-08-31T12:30:45.123456",
+        "completed_at": "2025-08-31T12:31:23.654321",
+        "output_file": "collage_123e4567-e89b-12d3-a456-426614174000.jpg",
+        "error_message": null,
+        "progress": 100
+    },
+    {
+        "job_id": "456e7890-e89b-12d3-a456-426614174001",
+        "status": "failed",
+        "created_at": "2025-08-31T12:35:12.345678",
+        "completed_at": null,
+        "output_file": null,
+        "error_message": "Invalid image format",
+        "progress": 0
+    }
+]
+```
+
+### DELETE /api/collage/cleanup/{job_id}
+
+Clean up temporary files for a completed job.
+
+**Parameters:**
+
+| Parameter | Type   | Required | Description                 |
+| --------- | ------ | -------- | --------------------------- |
+| job_id    | string | Yes      | UUID of the job to clean up |
+
+**Success Response (200):**
+
+```json
+{
+    "message": "Job cleaned up successfully"
+}
+```
+
+**Error Response (404):**
+
+```json
+{
+    "detail": "Job not found"
+}
+```
+
+### GET /health
+
+Health check endpoint.
+
+**Success Response (200):**
+
+```json
+{
+    "status": "healthy",
+    "timestamp": "2025-08-31T12:30:45.123456"
+}
+```
+
+## Data Models
+
+### CollageConfig
+
+Configuration object for collage generation.
+
+```python
+{
+  "width_inches": 12.0,        # 4-48 inches
+  "height_inches": 18.0,       # 4-48 inches
+  "dpi": 150,                  # 72-300 DPI
+  "layout_style": "masonry",   # "masonry" | "grid" | "random" | "spiral"
+  "spacing": 10,               # 0-50 pixels
+  "background_color": "#FFFFFF", # Hex color code
+  "maintain_aspect_ratio": true, # boolean
+  "apply_shadow": false        # boolean
+}
+```
+
+### CollageJob
+
+Job status and metadata.
+
+```python
+{
+  "job_id": "string",          # UUID
+  "status": "pending",         # "pending" | "processing" | "completed" | "failed"
+  "created_at": "datetime",    # ISO 8601 timestamp
+  "completed_at": "datetime",  # ISO 8601 timestamp or null
+  "output_file": "string",     # Filename or null
+  "error_message": "string",   # Error description or null
+  "progress": 0                # 0-100 percentage
+}
+```
+
+## File Constraints
+
+-   **Minimum files:** 2 images
+-   **Maximum files:** 100 images
+-   **Individual file size:** Maximum 10MB per image
+-   **Total size:** Maximum 500MB for all files combined
+-   **Supported formats:** JPEG, PNG, GIF, BMP, TIFF, WebP
+-   **Image dimensions:** No specific limits, but very large images may impact processing time
+
+## Rate Limiting
+
+Currently, no rate limiting is implemented. For production use, consider implementing appropriate rate limits based on your usage patterns.
+
+## Error Handling
+
+All endpoints return appropriate HTTP status codes and JSON error messages. Common error patterns:
+
+-   **400 Bad Request:** Invalid input parameters or file constraints
+-   **404 Not Found:** Resource not found (job, file)
+-   **500 Internal Server Error:** Server-side processing errors
+
+## Content Types
+
+-   **Request:** `multipart/form-data` for file uploads, `application/json` for other requests
+-   **Response:** `application/json` for API responses, `image/jpeg` for collage downloads
