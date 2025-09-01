@@ -18,7 +18,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Request, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
@@ -583,14 +583,14 @@ async def root():
 async def create_collage(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    width_inches: float = Query(default=12, ge=4, le=48),
-    height_inches: float = Query(default=18, ge=4, le=48),
-    dpi: int = Query(default=150, ge=72, le=300),
-    layout_style: LayoutStyle = Query(default=LayoutStyle.MASONRY),
-    spacing: int = Query(default=10, ge=0, le=50),
-    background_color: str = Query(default="#FFFFFF"),
-    maintain_aspect_ratio: bool = Query(default=True),
-    apply_shadow: bool = Query(default=False)
+    width_inches: float = Form(default=12, ge=4, le=48),
+    height_inches: float = Form(default=18, ge=4, le=48),
+    dpi: int = Form(default=150, ge=72, le=300),
+    layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
+    spacing: int = Form(default=10, ge=0, le=50),
+    background_color: str = Form(default="#FFFFFF"),
+    maintain_aspect_ratio: bool = Form(default=True),
+    apply_shadow: bool = Form(default=False)
 ):
     """Create a new collage from uploaded images"""
 
