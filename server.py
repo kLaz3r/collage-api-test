@@ -594,6 +594,11 @@ async def create_collage(
 ):
     """Create a new collage from uploaded images"""
 
+    # Log incoming request details for debugging
+    file_details = ", ".join([f"{f.filename} ({f.size if hasattr(f, 'size') else 'unknown size'})" for f in files if f.filename])
+    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_inches}in, height={height_inches}in, dpi={dpi}, layout={layout_style.value}, spacing={spacing}px, bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}")
+    logger.info(f"Files details: {file_details}")
+
     logger.info(f"Creating collage with {len(files)} files, layout: {layout_style}")
 
     # Validate file count
@@ -749,7 +754,7 @@ async def log_requests(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' https://fastapi.tiangolo.com"
 
     return response
 

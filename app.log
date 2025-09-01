@@ -28,3 +28,146 @@ pip install python-multipart
 2025-09-01 20:00:55,331 - __main__ - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 200 - 1.00ms - IP: 127.0.0.1
 2025-09-01 20:00:57,336 - __main__ - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 200 - 1.00ms - IP: 127.0.0.1
 2025-09-01 20:00:59,341 - __main__ - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:11,582 - server - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:15,587 - server - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:17,592 - server - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:07:18,596 - server - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:20,601 - server - INFO - GET /api/collage/status/8855ddc4-f9ce-49a9-90a9-f67052cae7cd - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:33,436 - server - INFO - Creating collage with 100 files, layout: LayoutStyle.MASONRY
+2025-09-01 20:07:34,031 - server - INFO - Collage job 13b98873-c776-4c9c-8486-855ff8ef81ed created with 100 images
+2025-09-01 20:07:34,032 - server - INFO - POST /api/collage/create - 200 - 962.12ms - IP: 127.0.0.1
+2025-09-01 20:07:35,090 - server - INFO - GET /api/collage/status/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:37,095 - server - INFO - GET /api/collage/status/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:39,101 - server - INFO - GET /api/collage/status/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:07:41,104 - server - INFO - GET /api/collage/status/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:07:43,109 - server - INFO - GET /api/collage/status/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:07:43,214 - server - INFO - GET /api/collage/download/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:07:49,415 - server - INFO - GET /api/collage/status/13b98873-c776-4c9c-8486-855ff8ef81ed - 200 - 1.02ms - IP: 127.0.0.1
+2025-09-01 20:07:57,623 - server - INFO - Creating collage with 100 files, layout: LayoutStyle.MASONRY
+2025-09-01 20:07:58,199 - server - INFO - Collage job e6503400-c36b-420b-be2e-8bc1e03e0536 created with 100 images
+2025-09-01 20:07:58,200 - server - INFO - POST /api/collage/create - 200 - 963.74ms - IP: 127.0.0.1
+2025-09-01 20:07:59,274 - server - INFO - GET /api/collage/status/e6503400-c36b-420b-be2e-8bc1e03e0536 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:08:00,333 - server - INFO - GET /api/collage/download/e6503400-c36b-420b-be2e-8bc1e03e0536 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:08:01,280 - server - INFO - GET /api/collage/status/e6503400-c36b-420b-be2e-8bc1e03e0536 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:05,284 - server - INFO - GET /api/collage/status/e6503400-c36b-420b-be2e-8bc1e03e0536 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:07,290 - server - INFO - GET /api/collage/status/e6503400-c36b-420b-be2e-8bc1e03e0536 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:08:09,294 - server - INFO - GET /api/collage/status/e6503400-c36b-420b-be2e-8bc1e03e0536 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:18,750 - server - INFO - Creating collage with 100 files, layout: LayoutStyle.MASONRY
+2025-09-01 20:08:19,409 - server - INFO - Collage job a7a5a696-b212-44b0-b091-a70d19840009 created with 100 images
+2025-09-01 20:08:19,410 - server - INFO - POST /api/collage/create - 200 - 1013.24ms - IP: 127.0.0.1
+2025-09-01 20:08:20,478 - server - INFO - GET /api/collage/status/a7a5a696-b212-44b0-b091-a70d19840009 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:08:22,484 - server - INFO - GET /api/collage/status/a7a5a696-b212-44b0-b091-a70d19840009 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:24,488 - server - INFO - GET /api/collage/status/a7a5a696-b212-44b0-b091-a70d19840009 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:26,493 - server - INFO - GET /api/collage/status/a7a5a696-b212-44b0-b091-a70d19840009 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:29,342 - server - INFO - GET /api/collage/status/a7a5a696-b212-44b0-b091-a70d19840009 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:08:31,347 - server - INFO - GET /api/collage/status/a7a5a696-b212-44b0-b091-a70d19840009 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:17:17,153 - server - INFO - Creating collage with 100 files, layout: LayoutStyle.MASONRY
+2025-09-01 20:17:17,668 - server - INFO - Collage job adea54a9-37ea-404e-b441-c40d3c257d2a created with 100 images
+2025-09-01 20:17:17,669 - server - INFO - POST /api/collage/create - 200 - 882.18ms - IP: 127.0.0.1
+2025-09-01 20:17:18,723 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:20,730 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:22,734 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:24,739 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:26,745 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:28,752 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:30,758 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:17:32,762 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:34,768 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:36,775 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:17:38,780 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:40,786 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:42,792 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:44,798 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:17:46,804 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:17:48,809 - server - INFO - GET /api/collage/status/adea54a9-37ea-404e-b441-c40d3c257d2a - 200 - 0.99ms - IP: 127.0.0.1
+2025-09-01 20:19:31,709 - server - INFO - Creating collage with 100 files, layout: LayoutStyle.MASONRY
+2025-09-01 20:19:32,281 - server - INFO - Collage job 4ab43644-dc2d-49b6-8440-17dafb9992d9 created with 100 images
+2025-09-01 20:19:32,281 - server - INFO - POST /api/collage/create - 200 - 935.73ms - IP: 127.0.0.1
+2025-09-01 20:19:34,229 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:35,235 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:37,240 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:19:41,246 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:43,250 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:19:44,256 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:46,261 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:50,266 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:52,270 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:19:53,275 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:19:55,281 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:19:59,285 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:20:01,290 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:02,294 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:06,606 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.01ms - IP: 127.0.0.1
+2025-09-01 20:20:10,611 - server - INFO - GET /api/collage/status/4ab43644-dc2d-49b6-8440-17dafb9992d9 - 404 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:28,755 - server - INFO - Incoming request: 100 files received - Parameters: width=12in, height=18in, dpi=150, layout=masonry, spacing=10px, bg_color=#FFFFFF, maintain_ratio=True, shadow=False
+2025-09-01 20:20:28,755 - server - INFO - Files details: _DSC2810_20250729_IG.jpg (616966), _DSC2791_20250729_IG.jpg (528003), _DSC2787_20250729_IG.jpg (523329), _DSC2783_20250729_IG.jpg (480225), _DSC2769_20250726_IG.jpg (841333), _DSC2752-Enhanced-NR_20250726_IG.jpg (409157), _DSC2736-Enhanced-NR_20250726_IG.jpg (562007), _DSC2695_20250726_IG.jpg (621616), _DSC2726-Enhanced-NR_20250726_IG.jpg (586330), _DSC2689-Enhanced-NR_20250726_IG.jpg (541445), _DSC2648_20250726_IG.jpg (803062), _DSC2644_20250726_IG.jpg (465373), _DSC2639_20250726_IG.jpg (800026), _DSC2624_20250726_IG.jpg (826319), _DSC2604_20250726_IG.jpg (722246), _DSC2619-Enhanced-NR_20250726_IG.jpg (515222), _DSC2601_20250726_IG.jpg (704852), _DSC2589_20250726_IG.jpg (788032), _DSC2568_20250726_IG.jpg (1018478), _DSC2560_20250726_IG.jpg (851479), _DSC2555_20250726_IG.jpg (700353), _DSC2516_20250726_IG.jpg (988557), _DSC2502_20250726_IG.jpg (522606), _DSC2499_20250726_IG.jpg (832830), _DSC2494_20250726_IG.jpg (743919), _DSC2483-Enhanced-NR_20250726_IG.jpg (548790), _DSC2476_20250726_IG.jpg (1255037), _DSC2466_20250726_IG.jpg (828596), _DSC2462_20250726_IG.jpg (949897), _DSC2455_20250726_IG.jpg (879326), _DSC2431_20250726_IG.jpg (649924), _DSC2450_20250726_IG.jpg (928694), _DSC2427_20250726_IG.jpg (666354), _DSC2413_20250726_IG.jpg (630789), _DSC2407_20250726_IG.jpg (817606), _DSC2403_20250726_IG.jpg (629847), _DSC2385-Enhanced-NR_20250726_IG.jpg (446177), _DSC2379-Enhanced-NR_20250726_IG.jpg (370852), _DSC2374_20250726_IG.jpg (781506), _DSC2351_20250726_IG.jpg (785476), _DSC2352-Enhanced-NR_20250726_IG.jpg (597650), _DSC2326-Enhanced-NR_20250726_IG.jpg (419352), _DSC2306-Enhanced-NR_20250726_IG.jpg (422377), _DSC2303_20250726_IG.jpg (503474), _DSC2296-Enhanced-NR_20250726_IG.jpg (212380), _DSC2288-Enhanced-NR_20250726_IG.jpg (219393), _DSC2279_20250726_IG.jpg (408655), _DSC2242_20250726_IG.jpg (935171), _DSC2213_20250726_IG.jpg (948955), _DSC2206_20250726_IG.jpg (989302), _DSC2204_20250726_IG.jpg (634202), _DSC2202_20250726_IG.jpg (1122958), _DSC2201-Enhanced-NR_20250725_IG.jpg (341841), _DSC2199-Enhanced-NR_20250725_IG.jpg (511090), _DSC2195_20250725_IG.jpg (604443), _DSC2183_20250725_IG.jpg (563978), _DSC2165_20250725_IG.jpg (576983), _DSC2175-Enhanced-NR_20250725_IG.jpg (843630), _DSC2162_20250725_IG.jpg (795325), _DSC2159_20250725_IG.jpg (351897), _DSC2156_20250725_IG.jpg (712802), _DSC2140_20250725_IG.jpg (803306), _DSC2123-Enhanced-NR_20250725_IG.jpg (723701), _DSC2117-Enhanced-NR_20250725_IG.jpg (833834), _DSC2116_20250725_IG.jpg (833388), _DSC2114-Enhanced-NR_20250725_IG.jpg (556580), _DSC2111-Enhanced-NR_20250725_IG.jpg (659386), _DSC2105-Enhanced-NR_20250725_IG.jpg (763426), _DSC2098-Enhanced-NR_20250725_IG.jpg (511648), _DSC2079-Enhanced-NR_20250725_IG.jpg (496076), _DSC2092-Enhanced-NR_20250725_IG.jpg (605454), _DSC2065_20250725_IG.jpg (476172), _DSC2056_20250725_IG.jpg (760768), _DSC2055_20250725_IG.jpg (731720), _DSC2053_20250725_IG.jpg (704331), _DSC2049_20250725_IG.jpg (560386), _DSC2034_20250725_IG.jpg (624447), _DSC2033_20250725_IG.jpg (860900), _DSC2014_20250725_IG.jpg (979966), _DSC2013_20250725_IG.jpg (1668731), _DSC2012_20250725_IG.jpg (741163), _DSC2010_20250725_IG.jpg (1146969), _DSC2007_20250725_IG.jpg (1224656), _DSC2006_20250725_IG.jpg (1081884), _DSC2004-Enhanced-NR_20250724_IG.jpg (481547), _DSC1998-Enhanced-NR_20250724_IG.jpg (312597), _DSC1990_20250724_IG.jpg (523429), _DSC1989-Enhanced-NR_20250724_IG.jpg (827187), _DSC1987_20250724_IG.jpg (756856), _DSC1985-Enhanced-NR_20250724_IG.jpg (1098533), _DSC1984_20250724_IG.jpg (843271), _DSC1980_20250724_IG.jpg (594807), _DSC1978-Enhanced-NR_20250724_IG.jpg (339571), _DSC1969_20250724_IG.jpg (406797), _DSC1967_20250724_IG.jpg (806458), _DSC1963_20250724_IG.jpg (766005), _DSC1957_20250724_IG.jpg (766510), _DSC1955_20250724_IG.jpg (571546), _DSC1950-Enhanced-NR_20250724_IG.jpg (628852), _DSC1949_20250724_IG.jpg (899120)
+2025-09-01 20:20:28,755 - server - INFO - Creating collage with 100 files, layout: LayoutStyle.MASONRY
+2025-09-01 20:20:29,315 - server - INFO - Collage job 80d2edc1-b227-4257-bd1b-33302d539321 created with 100 images
+2025-09-01 20:20:29,316 - server - INFO - POST /api/collage/create - 200 - 904.23ms - IP: 127.0.0.1
+2025-09-01 20:20:30,398 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:32,403 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:20:34,408 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:36,413 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:20:38,418 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:40,422 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:42,427 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:44,433 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:20:46,437 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 0.99ms - IP: 127.0.0.1
+2025-09-01 20:20:48,444 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 0.99ms - IP: 127.0.0.1
+2025-09-01 20:20:50,449 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 1.04ms - IP: 127.0.0.1
+2025-09-01 20:20:52,454 - server - INFO - GET /api/collage/status/80d2edc1-b227-4257-bd1b-33302d539321 - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:21:34,837 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:21:44,240 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:21:52,412 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:14,357 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:36,242 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:41,300 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:42,277 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:42,604 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:42,826 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:43,052 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:43,234 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:43,453 - server - INFO - GET /docs - 200 - 0.99ms - IP: 127.0.0.1
+2025-09-01 20:22:43,594 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:43,740 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:43,897 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:43,995 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,138 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,267 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,395 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,540 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,658 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,763 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:44,898 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:45,018 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:45,156 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:22:45,292 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:45,410 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:22:45,529 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:06,391 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:07,165 - __main__ - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:23:07,829 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:08,221 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:08,549 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:08,884 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:10,014 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:11,174 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:11,669 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:12,102 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:12,550 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:13,765 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:14,798 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:15,357 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:15,717 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:15,956 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:16,131 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:23:16,291 - __main__ - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:24:29,334 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:24:30,514 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:24:31,115 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:24:31,426 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:24:31,650 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:24:31,865 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:24:32,050 - server - INFO - GET /docs - 200 - 1.00ms - IP: 127.0.0.1
+2025-09-01 20:24:32,240 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
+2025-09-01 20:24:59,709 - server - INFO - GET /docs - 200 - 0.00ms - IP: 127.0.0.1
