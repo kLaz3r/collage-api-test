@@ -137,3 +137,7 @@ outputs/*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+outputs/
+temp/
+app.log
