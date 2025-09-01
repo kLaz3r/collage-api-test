@@ -13,6 +13,7 @@ import re
 import tempfile
 import shutil
 import logging
+import time
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime
 from enum import Enum
@@ -32,10 +33,367 @@ try:
 except ImportError:
     MAGIC_AVAILABLE = False
 
-# Rate limiting (simple in-memory implementation)
 from collections import defaultdict
-import time
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log', mode='a')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="Collage Maker API",
+    description="Create beautiful photo collages with masonry layout",
+    version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configuration
+UPLOAD_DIR = Path("uploads")
+OUTPUT_DIR = Path("outputs")
+TEMP_DIR = Path("temp")
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB per image
+MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
+
+# Create directories
+for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
+    dir_path.mkdir(exist_ok=True)
+
+# Store job status (in production, use Redis)
+job_status = {}
+
+# Enums
+class LayoutStyle(str, Enum):
+    MASONRY = "masonry"
+    GRID = "grid"
+    RANDOM = "random"
+    SPIRAL = "spiral"
+
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+# Pydantic models
+class CollageConfig(BaseModel):
+    width_inches: float = Field(default=12, ge=4, le=48)
+    height_inches: float = Field(default=18, ge=4, le=48)
+    dpi: int = Field(default=150, ge=72, le=300)
+    layout_style: LayoutStyle = LayoutStyle.MASONRY
+    spacing: int = Field(default=10, ge=0, le=50)
+    background_color: str = Field(default="#FFFFFF")
+    maintain_aspect_ratio: bool = True
+    apply_shadow: bool = False
+
+    @validator('background_color')
+    def validate_color(cls, v):
+        """Validate hex color format"""
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
+            raise ValueError('Invalid hex color format - must be #RRGGBB')
+        return v
+
+class CollageJob(BaseModel):
+    job_id: str
+    status: JobStatus
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    output_file: Optional[str] = None
+    error_message: Optional[str] = None
+    progress: int = Field(default=0, ge=0, le=100)
+
+class ImageBlock:
+    """Represents a single image block in the collage"""
+    def __init__(self, x: int, y: int, width: int, height: int, image_path: str = None):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.image_path = image_path
+        self.image = None
+
+class MasonryPacker:
+    """Implements masonry/bin packing algorithm for image layout"""
+
+    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
+        self.canvas_width = canvas_width
+        self.canvas_height = canvas_height
+        self.spacing = spacing
+        self.blocks = []
+
+    def pack_images(self, image_paths: List[str], maintain_aspect: bool = True) -> List[ImageBlock]:
+        """Pack images using masonry layout algorithm"""
+        blocks = []
+
+        # Get image dimensions
+        images_info = []
+        for path in image_paths:
+            with Image.open(path) as img:
+                images_info.append({
+                    'path': path,
+                    'width': img.width,
+                    'height': img.height,
+                    'aspect': img.width / img.height
+                })
+
+        # Sort by area (largest first) for better packing
+        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
+
+        # Simple masonry layout - column-based approach
+        num_columns = self._calculate_columns(len(images_info))
+
+        # Aggressive column width calculation to maximize canvas usage
+        total_spacing_width = (num_columns - 1) * self.spacing
+
+        # Use the absolute maximum available width - no unused space
+        if len(images_info) > 80:
+            # For 100 images, maximize space utilization
+            available_width = self.canvas_width - total_spacing_width
+            column_width = available_width // num_columns  # Use every available pixel
+            if column_width < 30:  # Too small? Use fixed small size
+                column_width = 30
+        else:
+            # Less aggressive for smaller counts
+            available_width = self.canvas_width - total_spacing_width
+            column_width = available_width // num_columns
+
+        column_heights = [0] * num_columns
+
+        # First pass: place images in columns
+        for img_info in images_info:
+            # Calculate dimensions first
+            if maintain_aspect:
+                aspect = img_info['aspect']
+                width = column_width
+                height = int(width / aspect)
+            else:
+                # Instead of random heights, use proportional height based on image aspect ratio
+                # but scaled to fit the column while filling available space more effectively
+                aspect = img_info['aspect']
+                width = column_width
+                # Use a more reasonable height range that still varies but avoids extremes
+                base_height = int(width / aspect)
+                # Adjust to be more proportional to image content rather than random
+                height = max(80, min(base_height, int(width * 1.2))) # Allow some variation but stay reasonable
+
+            # Try to find a column where this image fits
+            placed = False
+            for attempt in range(num_columns * 2):  # Try multiple times
+                min_col = column_heights.index(min(column_heights))
+                y = column_heights[min_col]
+
+                # If it fits in current position
+                if y + height <= self.canvas_height:
+                    x = min_col * (column_width + self.spacing)
+                    block = ImageBlock(x, y, width, height, img_info['path'])
+                    blocks.append(block)
+                    column_heights[min_col] += height + self.spacing
+                    placed = True
+                    break
+                else:
+                    # Make space by adjusting this column height
+                    column_heights[min_col] = self.canvas_height - height - self.spacing
+
+        # Second pass: fill remaining gaps
+        remaining_images = [img for img in images_info if all(
+            block.image_path != img['path'] for block in blocks
+        )]
+
+        # Sort remaining images by size (smallest first to fill gaps)
+        remaining_images.sort(key=lambda x: x['width'] * x['height'])
+
+        for img_info in remaining_images:
+            # Calculate dimensions
+            if maintain_aspect:
+                aspect = img_info['aspect']
+                width = column_width
+                height = int(width / aspect)
+            else:
+                # Use proportional height based on image content instead of random
+                aspect = img_info['aspect']
+                width = column_width
+                base_height = int(width / aspect)
+                height = max(80, min(base_height, int(width * 1.2)))
+
+            # Find the column with most space available
+            column_spaces = []
+            for col in range(num_columns):
+                y = column_heights[col]
+                available_height = self.canvas_height - y - self.spacing
+                if height <= available_height:
+                    column_spaces.append((col, available_height))
+
+            if column_spaces:
+                # Place in column with most available space
+                column_spaces.sort(key=lambda x: x[1], reverse=True)
+                target_col = column_spaces[0][0]  # Column with most space
+
+                x = target_col * (column_width + self.spacing)
+                y = column_heights[target_col]
+                block = ImageBlock(x, y, width, height, img_info['path'])
+                blocks.append(block)
+                column_heights[target_col] += height + self.spacing
+
+        # Third pass: force fit any remaining images by scaling them down, prioritizing bottom filling
+        still_remaining = [img for img in images_info if all(
+            block.image_path != img['path'] for block in blocks
+        )]
+
+        # Sort by remaining space to prioritize columns that need more filling
+        column_info = [(col, self.canvas_height - column_heights[col]) for col in range(num_columns)]
+        column_info.sort(key=lambda x: x[1])  # Sort by remaining space (smallest first - need most filling)
+
+        for img_info in still_remaining:
+            # Try to fill the shortest column first to balance heights
+            column_spaces = []
+            for col in range(num_columns):
+                available_height = self.canvas_height - column_heights[col]
+                if available_height > 30:  # Lower minimum to fill more small spaces
+                    column_spaces.append((col, available_height))
+
+            if column_spaces:
+                # Prioritize columns with least remaining space to balance heights
+                column_spaces.sort(key=lambda x: x[1])  # Smallest remaining space first
+                target_col = column_spaces[0][0]
+                available_height = column_spaces[0][1] - self.spacing
+
+                # Scale image to fit available space
+                x = target_col * (column_width + self.spacing)
+                y = column_heights[target_col]
+
+                # Fit to available space while maintaining aspect ratio
+                scaled_height = min(available_height, int(column_width / img_info['aspect']))
+                scaled_width = int(scaled_height * img_info['aspect'])
+
+                # Ensure width fits in column
+                if scaled_width > column_width:
+                    scaled_width = column_width
+                    scaled_height = int(scaled_width / img_info['aspect'])
+
+                # Don't allow images smaller than 20px to avoid being too tiny
+                if scaled_height < 20:
+                    scaled_height = min(20, available_height)
+                    scaled_width = int(scaled_height * img_info['aspect'])
+                    if scaled_width > column_width:
+                        scaled_width = column_width
+
+                block = ImageBlock(x, y, scaled_width, scaled_height, img_info['path'])
+                blocks.append(block)
+                column_heights[target_col] += scaled_height + self.spacing
+
+        return blocks
+
+    def _calculate_columns(self, num_images: int) -> int:
+        """Calculate optimal number of columns for vertical filling efficiency"""
+        # For vertical filling, prioritize wider columns over many narrow ones
+        if num_images <= 4:
+            return 2
+        elif num_images <= 9:
+            return 3
+        elif num_images <= 16:
+            return 4
+        elif num_images <= 25:
+            return 5
+        elif num_images <= 36:
+            return 6
+        elif num_images <= 49:
+            return 7
+        elif num_images <= 64:
+            return 8
+        elif num_images <= 81:
+            return 9  # 9 columns for 64-81 images - optimal vertical filling
+        elif num_images <= 100:
+            return 10  # 10 columns for 82-100 images - balances width/height
+        else:
+            # For very high counts, still keep reasonable number
+            return min(12, max(8, int(num_images ** 0.4) + 2))
+
+def detect_overlaps(blocks: List[ImageBlock]) -> Dict[str, any]:
+    """Detect overlaps between image blocks and provide recommendations"""
+    overlaps = []
+    overlapping_count = 0
+
+    for i in range(len(blocks)):
+        for j in range(i + 1, len(blocks)):
+            block1 = blocks[i]
+            block2 = blocks[j]
+
+            # Check for overlap
+            if (block1.x < block2.x + block2.width and
+                block1.x + block1.width > block2.x and
+                block1.y < block2.y + block2.height and
+                block1.y + block1.height > block2.y):
+
+                overlaps.append({
+                    'image1_index': i,
+                    'image2_index': j,
+                    'image1_name': block1.image_path.split('/')[-1].split('\\')[-1],
+                    'image2_name': block2.image_path.split('/')[-1].split('\\')[-1],
+                    'overlap_area': calculate_overlap_area(block1, block2)
+                })
+                overlapping_count += 1
+
+    return {
+        'has_overlaps': len(overlaps) > 0,
+        'overlap_count': len(overlaps),
+        'overlapping_images': overlapping_count,
+        'details': overlaps,
+        'recommendation': get_removal_recommendation(len(blocks), len(overlaps))
+    }
+
+def calculate_overlap_area(block1: ImageBlock, block2: ImageBlock) -> int:
+    """Calculate the area of overlap between two blocks"""
+    x_overlap = max(0, min(block1.x + block1.width, block2.x + block2.width) - max(block1.x, block2.x))
+    y_overlap = max(0, min(block1.y + block1.height, block2.y + block2.height) - max(block1.y, block2.y))
+    return x_overlap * y_overlap
+
+def get_removal_recommendation(total_images: int, overlap_count: int) -> Dict[str, any]:
+    """Provide recommendation for how many images to remove based on overlaps"""
+    if overlap_count == 0:
+        return {
+            'action': 'none',
+            'message': 'Perfect! No overlaps detected.',
+            'images_to_remove': 0
+        }
+
+    # Heuristic: for moderate overlaps, suggest removing ~10% of images
+    # For heavy overlaps, suggest removing more
+    if overlap_count <= 3:
+        removal_suggestion = max(1, total_images // 20)  # Remove 5% for minor overlaps
+        suggestion_type = 'minor'
+    elif overlap_count <= 8:
+        removal_suggestion = max(2, total_images // 15)  # Remove 6-7% for moderate overlaps
+        suggestion_type = 'moderate'
+    else:
+        removal_suggestion = max(5, total_images // 10)  # Remove 10% for major overlaps
+        suggestion_type = 'significant'
+
+    removal_suggestion = min(removal_suggestion, max(1, total_images // 4))  # Cap at 25% removal
+
+    return {
+        'action': 'remove_images',
+        'type': suggestion_type,
+        'message': f'Remove {removal_suggestion} image(s) to eliminate overlaps and achieve a perfect layout.',
+        'images_to_remove': removal_suggestion,
+        'new_total_images': total_images - removal_suggestion,
+        'overlap_density': overlap_count / total_images
+    }
+
+# Rate limiting (simple in-memory implementation)
 rate_limit_store = defaultdict(list)
 RATE_LIMIT_REQUESTS = 100  # requests per window
 RATE_LIMIT_WINDOW = 60  # seconds
@@ -181,76 +539,6 @@ class ImageBlock:
         self.height = height
         self.image_path = image_path
         self.image = None
-
-class MasonryPacker:
-    """Implements masonry/bin packing algorithm for image layout"""
-    
-    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
-        self.canvas_width = canvas_width
-        self.canvas_height = canvas_height
-        self.spacing = spacing
-        self.blocks = []
-        
-    def pack_images(self, image_paths: List[str], maintain_aspect: bool = True) -> List[ImageBlock]:
-        """Pack images using masonry layout algorithm"""
-        blocks = []
-        
-        # Get image dimensions
-        images_info = []
-        for path in image_paths:
-            with Image.open(path) as img:
-                images_info.append({
-                    'path': path,
-                    'width': img.width,
-                    'height': img.height,
-                    'aspect': img.width / img.height
-                })
-        
-        # Sort by area (largest first) for better packing
-        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
-        
-        # Simple masonry layout - column-based approach
-        num_columns = self._calculate_columns(len(images_info))
-        column_width = (self.canvas_width - (num_columns - 1) * self.spacing) // num_columns
-        column_heights = [0] * num_columns
-        
-        for img_info in images_info:
-            # Find shortest column
-            min_col = column_heights.index(min(column_heights))
-            
-            # Calculate position
-            x = min_col * (column_width + self.spacing)
-            y = column_heights[min_col]
-            
-            # Calculate dimensions
-            if maintain_aspect:
-                aspect = img_info['aspect']
-                width = column_width
-                height = int(width / aspect)
-            else:
-                width = column_width
-                height = random.randint(150, 400)  # Random height for variety
-            
-            # Check if it fits
-            if y + height <= self.canvas_height:
-                block = ImageBlock(x, y, width, height, img_info['path'])
-                blocks.append(block)
-                column_heights[min_col] += height + self.spacing
-        
-        return blocks
-    
-    def _calculate_columns(self, num_images: int) -> int:
-        """Calculate optimal number of columns based on image count"""
-        if num_images <= 6:
-            return 2
-        elif num_images <= 15:
-            return 3
-        elif num_images <= 30:
-            return 4
-        elif num_images <= 60:
-            return 5
-        else:
-            return 6
 
 class GridPacker:
     """Implements grid layout for images"""
@@ -453,26 +741,41 @@ class CollageGenerator:
         return output_path
     
     def _smart_resize(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
-        """Resize image with smart cropping to maintain composition"""
+        """Resize image with even cropping to maintain composition"""
         img_aspect = img.width / img.height
         target_aspect = target_width / target_height
-        
+
         if abs(img_aspect - target_aspect) < 0.1:
             # Aspects are similar, simple resize
             return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-        
-        # Smart crop and resize
+
+        # Enhanced cropping for more balanced crop distribution
         if img_aspect > target_aspect:
-            # Image is wider, crop width
+            # Image is wider - need to crop horizontally (sides)
             new_width = int(img.height * target_aspect)
-            left = (img.width - new_width) // 2
-            img = img.crop((left, 0, left + new_width, img.height))
+
+            # Distribute crop more evenly from both sides instead of just center-cropping
+            total_crop = img.width - new_width
+            left_crop = total_crop // 3  # Crop more from left
+            right_crop = total_crop - left_crop  # Crop less from right to preserve composition
+
+            left = left_crop
+            right = left + new_width
+            img = img.crop((left, 0, right, img.height))
+
         else:
-            # Image is taller, crop height
+            # Image is taller - need to crop vertically (top/bottom)
             new_height = int(img.width / target_aspect)
-            top = (img.height - new_height) // 4  # Crop more from bottom
-            img = img.crop((0, top, img.width, top + new_height))
-        
+
+            # Distribute crop more evenly from top and bottom instead of more from bottom
+            total_crop = img.height - new_height
+            top_crop = total_crop // 2       # Equal distribution from top
+            bottom_crop = total_crop // 2     # Equal distribution from bottom
+
+            top = top_crop
+            bottom = top + new_height
+            img = img.crop((0, top, img.width, bottom))
+
         return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
     
     def _add_shadow(self, img: Image.Image) -> Image.Image:
@@ -552,11 +855,15 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
         output_path = OUTPUT_DIR / output_filename
         generator.generate(blocks, str(output_path))
         
-        # Update job status
+        # Check for overlaps and provide recommendations
+        overlap_analysis = detect_overlaps(blocks)
+
+        # Update job status with overlap information
         job_status[job_id]['status'] = JobStatus.COMPLETED
         job_status[job_id]['completed_at'] = datetime.now()
         job_status[job_id]['output_file'] = output_filename
         job_status[job_id]['progress'] = 100
+        job_status[job_id]['overlap_analysis'] = overlap_analysis
         
     except Exception as e:
         job_status[job_id]['status'] = JobStatus.FAILED
@@ -573,6 +880,7 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "create_collage": "/api/collage/create",
+            "analyze_overlaps": "/api/collage/analyze-overlaps",
             "get_status": "/api/collage/status/{job_id}",
             "download": "/api/collage/download/{job_id}",
             "list_jobs": "/api/collage/jobs"
@@ -700,6 +1008,131 @@ async def download_collage(job_id: str):
         media_type='image/jpeg',
         filename=f"collage_{job_id}.jpg"
     )
+
+@app.post("/api/collage/analyze-overlaps")
+async def analyze_overlaps(
+    files: List[UploadFile] = File(...),
+    width_inches: float = Form(default=12, ge=4, le=48),
+    height_inches: float = Form(default=18, ge=4, le=48),
+    dpi: int = Form(default=150, ge=72, le=300),
+    layout_style: str = Form(default="masonry"),
+    spacing: int = Form(default=10, ge=0, le=50),
+    maintain_aspect_ratio: bool = Form(default=True)
+):
+    """Analyze potential overlaps before creating collage and provide recommendations"""
+    try:
+        # Basic validation
+        if len(files) < 2:
+            raise HTTPException(status_code=400, detail="At least 2 images required")
+        if len(files) > 100:
+            raise HTTPException(status_code=400, detail="Maximum 100 images allowed")
+
+        # Convert layout_style to enum
+        try:
+            style_enum = LayoutStyle(layout_style.lower())
+        except ValueError:
+            style_enum = LayoutStyle.MASONRY
+
+        # Save temp files for analysis
+        temp_files = []
+        images_info = []
+
+        for file in files:
+            # Create temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                contents = await file.read()
+                temp_file.write(contents)
+                temp_files.append(temp_file.name)
+
+            # Validate and get image info
+            if not validate_image_file(temp_files[-1]):
+                # Cleanup on error
+                for f in temp_files:
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+                raise HTTPException(status_code=400, detail=f"Invalid image: {file.filename}")
+
+            # Get image dimensions
+            with Image.open(temp_files[-1]) as img:
+                images_info.append({
+                    'path': temp_files[-1],
+                    'width': img.width,
+                    'height': img.height,
+                    'aspect': img.width / img.height
+                })
+
+        # Sort by area (largest first)
+        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
+
+        # Simulate layout generation
+        canvas_width = int(width_inches * dpi)
+        canvas_height = int(height_inches * dpi)
+
+        # Choose packer based on layout style
+        if style_enum == LayoutStyle.MASONRY:
+            packer = MasonryPacker(canvas_width, canvas_height, spacing)
+            blocks = packer.pack_images([info['path'] for info in images_info], maintain_aspect_ratio)
+        elif style_enum == LayoutStyle.GRID:
+            packer = GridPacker(canvas_width, canvas_height, spacing)
+            blocks = packer.pack_images([info['path'] for info in images_info])
+        elif style_enum == LayoutStyle.RANDOM:
+            packer = RandomPacker(canvas_width, canvas_height, spacing)
+            blocks = packer.pack_images([info['path'] for info in images_info])
+        elif style_enum == LayoutStyle.SPIRAL:
+            packer = SpiralPacker(canvas_width, canvas_height, spacing)
+            blocks = packer.pack_images([info['path'] for info in images_info])
+        else:
+            packer = MasonryPacker(canvas_width, canvas_height, spacing)
+            blocks = packer.pack_images([info['path'] for info in images_info], maintain_aspect_ratio)
+
+        # Analyze overlaps
+        overlap_analysis = detect_overlaps(blocks)
+
+        # Suggest images to remove if there are overlaps
+        if overlap_analysis['has_overlaps'] and overlap_analysis['recommendation']['images_to_remove'] > 0:
+            # Find which images are causing most overlaps
+            overlap_problem_images = {}
+            for overlap in overlap_analysis['details']:
+                for idx in [overlap['image1_index'], overlap['image2_index']]:
+                    if idx not in overlap_problem_images:
+                        overlap_problem_images[idx] = 0
+                    overlap_problem_images[idx] += 1
+
+            # Sort by overlap count
+            images_by_overlaps = sorted(overlap_problem_images.items(), key=lambda x: x[1], reverse=True)
+            images_to_suggest_removing = images_by_overlaps[:overlap_analysis['recommendation']['images_to_remove']]
+
+            # Create recommendation with specific filenames
+            recommended_removals = []
+            for img_idx, overlap_count in images_to_suggest_removing:
+                if img_idx < len(images_info) and img_idx < len(files):
+                    recommended_removals.append({
+                        'index': img_idx,
+                        'filename': files[img_idx].filename or f"image_{img_idx}",
+                        'overlap_count': overlap_count
+                    })
+
+            overlap_analysis['recommended_removals'] = recommended_removals
+
+        # Cleanup temp files
+        for f in temp_files:
+            try:
+                os.unlink(f)
+            except:
+                pass
+
+        return overlap_analysis
+
+    except Exception as e:
+        # Cleanup temp files on error
+        for f in temp_files:
+            try:
+                os.unlink(f)
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 @app.get("/api/collage/jobs")
 async def list_jobs():
