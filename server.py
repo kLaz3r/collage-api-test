@@ -131,7 +131,7 @@ class ImageBlock:
         self.image = None
 
 class MasonryPacker:
-    """Implements masonry/bin packing algorithm for image layout"""
+    """Implements dynamic masonry layout algorithm for optimal canvas filling"""
 
     def __init__(self, canvas_width: int, canvas_height: int, spacing_percent: float = 2.0):
         self.canvas_width = canvas_width
@@ -141,10 +141,11 @@ class MasonryPacker:
         self.blocks = []
 
     def pack_images(self, image_paths: List[str], maintain_aspect: bool = True) -> List[ImageBlock]:
-        """Pack images using masonry layout algorithm"""
-        blocks = []
+        """Pack images using the new dynamic masonry algorithm"""
+        if not image_paths:
+            return []
 
-        # Get image dimensions
+        # Get image dimensions and aspect ratios
         images_info = []
         for path in image_paths:
             with Image.open(path) as img:
@@ -155,178 +156,153 @@ class MasonryPacker:
                     'aspect': img.width / img.height
                 })
 
-        # Sort by area (largest first) for better packing
-        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
-
-        # Simple masonry layout - column-based approach
-        num_columns = self._calculate_columns(len(images_info))
-
-        # Add edge spacing to left and right sides
-        edge_spacing = self.spacing_pixels
-        total_spacing_width = (num_columns - 1) * self.spacing_pixels + 2 * edge_spacing
-
-        # Use the absolute maximum available width - no unused space
-        if len(images_info) > 80:
-            # For 100 images, maximize space utilization
-            available_width = self.canvas_width - total_spacing_width
-            column_width = available_width // num_columns  # Use every available pixel
-            if column_width < 30:  # Too small? Use fixed small size
-                column_width = 30
-        else:
-            # Less aggressive for smaller counts
-            available_width = self.canvas_width - total_spacing_width
-            column_width = available_width // num_columns
-
-        column_heights = [edge_spacing] * num_columns
-
-        # First pass: place images in columns
-        for img_info in images_info:
-            # Calculate dimensions first
-            if maintain_aspect:
-                aspect = img_info['aspect']
-                width = column_width
-                height = int(width / aspect)
-            else:
-                # Instead of random heights, use proportional height based on image aspect ratio
-                # but scaled to fit the column while filling available space more effectively
-                aspect = img_info['aspect']
-                width = column_width
-                # Use a more reasonable height range that still varies but avoids extremes
-                base_height = int(width / aspect)
-                # Adjust to be more proportional to image content rather than random
-                height = max(80, min(base_height, int(width * 1.2))) # Allow some variation but stay reasonable
-
-            # Try to find a column where this image fits
-            placed = False
-            for attempt in range(num_columns * 2):  # Try multiple times
-                min_col = column_heights.index(min(column_heights))
-                y = column_heights[min_col]
-
-                # If it fits in current position
-                if y + height <= self.canvas_height:
-                    x = edge_spacing + min_col * (column_width + self.spacing_pixels)
-                    block = ImageBlock(x, y, width, height, img_info['path'])
-                    blocks.append(block)
-                    column_heights[min_col] += height + self.spacing_pixels
-                    placed = True
-                    break
-                else:
-                    # Make space by adjusting this column height
-                    column_heights[min_col] = self.canvas_height - height - self.spacing_pixels
-
-        # Second pass: fill remaining gaps
-        remaining_images = [img for img in images_info if all(
-            block.image_path != img['path'] for block in blocks
-        )]
-
-        # Sort remaining images by size (smallest first to fill gaps)
-        remaining_images.sort(key=lambda x: x['width'] * x['height'])
-
-        for img_info in remaining_images:
-            # Calculate dimensions
-            if maintain_aspect:
-                aspect = img_info['aspect']
-                width = column_width
-                height = int(width / aspect)
-            else:
-                # Use proportional height based on image content instead of random
-                aspect = img_info['aspect']
-                width = column_width
-                base_height = int(width / aspect)
-                height = max(80, min(base_height, int(width * 1.2)))
-
-            # Find the column with most space available
-            column_spaces = []
-            for col in range(num_columns):
-                y = column_heights[col]
-                available_height = self.canvas_height - y - self.spacing_pixels
-                if height <= available_height:
-                    column_spaces.append((col, available_height))
-
-            if column_spaces:
-                # Place in column with most available space
-                column_spaces.sort(key=lambda x: x[1], reverse=True)
-                target_col = column_spaces[0][0]  # Column with most space
-
-                x = edge_spacing + target_col * (column_width + self.spacing_pixels)
-                y = column_heights[target_col]
-                block = ImageBlock(x, y, width, height, img_info['path'])
-                blocks.append(block)
-                column_heights[target_col] += height + self.spacing_pixels
-
-        # Third pass: force fit any remaining images by scaling them down, prioritizing bottom filling
-        still_remaining = [img for img in images_info if all(
-            block.image_path != img['path'] for block in blocks
-        )]
-
-        # Sort by remaining space to prioritize columns that need more filling
-        column_info = [(col, self.canvas_height - column_heights[col]) for col in range(num_columns)]
-        column_info.sort(key=lambda x: x[1])  # Sort by remaining space (smallest first - need most filling)
-
-        for img_info in still_remaining:
-            # Try to fill the shortest column first to balance heights
-            column_spaces = []
-            for col in range(num_columns):
-                available_height = self.canvas_height - column_heights[col]
-                if available_height > 30:  # Lower minimum to fill more small spaces
-                    column_spaces.append((col, available_height))
-
-            if column_spaces:
-                # Prioritize columns with least remaining space to balance heights
-                column_spaces.sort(key=lambda x: x[1])  # Smallest remaining space first
-                target_col = column_spaces[0][0]
-                available_height = column_spaces[0][1] - self.spacing_pixels
-
-                # Scale image to fit available space
-                x = edge_spacing + target_col * (column_width + self.spacing_pixels)
-                y = column_heights[target_col]
-
-                # Fit to available space while maintaining aspect ratio
-                scaled_height = min(available_height, int(column_width / img_info['aspect']))
-                scaled_width = int(scaled_height * img_info['aspect'])
-
-                # Ensure width fits in column
-                if scaled_width > column_width:
-                    scaled_width = column_width
-                    scaled_height = int(scaled_width / img_info['aspect'])
-
-                # Don't allow images smaller than 20px to avoid being too tiny
-                if scaled_height < 20:
-                    scaled_height = min(20, available_height)
-                    scaled_width = int(scaled_height * img_info['aspect'])
-                    if scaled_width > column_width:
-                        scaled_width = column_width
-
-                block = ImageBlock(x, y, scaled_width, scaled_height, img_info['path'])
-                blocks.append(block)
-                column_heights[target_col] += scaled_height + self.spacing_pixels
-
+        # Calculate optimal column count
+        optimal_columns = self._calculate_optimal_columns(len(images_info))
+        
+        # Distribute photos across columns
+        distribution = self._distribute_photos(len(images_info), optimal_columns)
+        
+        # Calculate photo layout
+        layout = self._calculate_photo_layout(images_info, distribution, optimal_columns)
+        
+        # Refine layout for better fit
+        layout = self._refine_masonry_layout(layout, images_info)
+        
+        # Convert layout to ImageBlock objects
+        blocks = []
+        for item in layout:
+            block = ImageBlock(
+                x=int(item['x']),
+                y=int(item['y']),
+                width=int(item['width']),
+                height=int(item['height']),
+                image_path=item['photo']['path']
+            )
+            blocks.append(block)
+        
         return blocks
 
-    def _calculate_columns(self, num_images: int) -> int:
-        """Calculate optimal number of columns for vertical filling efficiency"""
-        # For vertical filling, prioritize wider columns over many narrow ones
-        if num_images <= 4:
-            return 2
-        elif num_images <= 9:
-            return 3
-        elif num_images <= 16:
-            return 4
-        elif num_images <= 25:
-            return 5
-        elif num_images <= 36:
-            return 6
-        elif num_images <= 49:
-            return 7
-        elif num_images <= 64:
-            return 8
-        elif num_images <= 81:
-            return 9  # 9 columns for 64-81 images - optimal vertical filling
-        elif num_images <= 100:
-            return 10  # 10 columns for 82-100 images - balances width/height
-        else:
-            # For very high counts, still keep reasonable number
-            return min(12, max(8, int(num_images ** 0.4) + 2))
+    def _calculate_optimal_columns(self, photo_count: int) -> int:
+        """Calculate optimal number of columns for best canvas filling"""
+        # Start with a reasonable estimate based on canvas aspect ratio
+        min_columns = max(1, int((photo_count * self.canvas_width / self.canvas_height) ** 0.5))
+        max_columns = min(photo_count, max(1, self.canvas_width // 200))  # min 200px per column
+        
+        best_columns = min_columns
+        best_score = float('inf')
+        
+        # Test different column counts to find the best fit
+        for cols in range(min_columns, max_columns + 1):
+            score = self._evaluate_layout(photo_count, cols)
+            if score < best_score:
+                best_score = score
+                best_columns = cols
+        
+        return best_columns
+
+    def _evaluate_layout(self, photo_count: int, columns: int) -> float:
+        """Evaluate layout quality based on column count"""
+        column_width = (self.canvas_width - self.spacing_pixels * (columns + 1)) / columns
+        photos_per_column = (photo_count + columns - 1) // columns  # Ceiling division
+        total_spacing_per_column = self.spacing_pixels * (photos_per_column + 1)
+        available_height_per_column = self.canvas_height - total_spacing_per_column
+        avg_photo_height = available_height_per_column / photos_per_column
+        
+        # Score based on how well photos fit (penalize extreme aspect ratios)
+        aspect_ratio = column_width / avg_photo_height
+        aspect_penalty = abs(aspect_ratio - 1.0)  # prefer square-ish photos
+        
+        # Penalty for uneven distribution
+        remainder = photo_count % columns
+        unevenness_penalty = remainder / columns if remainder > 0 else 0
+        
+        return aspect_penalty + unevenness_penalty
+
+    def _distribute_photos(self, photo_count: int, columns: int) -> List[int]:
+        """Distribute photos evenly across columns"""
+        distribution = [0] * columns
+        photos_per_column = photo_count // columns
+        remainder = photo_count % columns
+        
+        # Distribute evenly, then add remainder to first columns
+        for i in range(columns):
+            distribution[i] = photos_per_column + (1 if i < remainder else 0)
+        
+        return distribution
+
+    def _calculate_photo_layout(self, images_info: List[dict], distribution: List[int], columns: int) -> List[dict]:
+        """Calculate photo dimensions and positions"""
+        column_width = (self.canvas_width - self.spacing_pixels * (columns + 1)) / columns
+        
+        layout = []
+        photo_index = 0
+        
+        for col in range(columns):
+            photos_in_this_column = distribution[col]
+            total_spacing = self.spacing_pixels * (photos_in_this_column + 1)
+            available_height = self.canvas_height - total_spacing
+            photo_height = available_height / photos_in_this_column
+            
+            x = self.spacing_pixels + col * (column_width + self.spacing_pixels)
+            y = self.spacing_pixels
+            
+            for row in range(photos_in_this_column):
+                layout.append({
+                    'photo': images_info[photo_index],
+                    'x': x,
+                    'y': y,
+                    'width': column_width,
+                    'height': photo_height
+                })
+                
+                y += photo_height + self.spacing_pixels
+                photo_index += 1
+        
+        return layout
+
+    def _refine_masonry_layout(self, layout: List[dict], images_info: List[dict]) -> List[dict]:
+        """Refine layout for better fit and aspect ratios"""
+        # Adjust for photo aspect ratios
+        for item in layout:
+            photo = item['photo']
+            if photo['aspect']:
+                ideal_height = item['width'] / photo['aspect']
+                # Slightly adjust height while maintaining total coverage
+                item['height'] = min(item['height'] * 1.2, ideal_height)
+        
+        # Redistribute remaining vertical space
+        columns = max(1, len(set(int(item['x'] / (item['width'] + self.spacing_pixels)) for item in layout)))
+        self._redistribute_vertical_space(layout, columns)
+        
+        return layout
+
+    def _redistribute_vertical_space(self, layout: List[dict], columns: int):
+        """Redistribute vertical space to balance column heights"""
+        for col in range(columns):
+            # Find items in this column
+            column_items = [
+                item for item in layout 
+                if int(item['x'] / (item['width'] + self.spacing_pixels)) == col
+            ]
+            
+            if not column_items:
+                continue
+            
+            # Sort by y position
+            column_items.sort(key=lambda x: x['y'])
+            
+            total_current_height = sum(item['height'] for item in column_items)
+            total_spacing = self.spacing_pixels * (len(column_items) + 1)
+            available_height = self.canvas_height - total_spacing
+            
+            if total_current_height > 0:
+                scale_factor = available_height / total_current_height
+                
+                current_y = self.spacing_pixels
+                for item in column_items:
+                    item['height'] *= scale_factor
+                    item['y'] = current_y
+                    current_y += item['height'] + self.spacing_pixels
 
 
 class GridPacker:
@@ -963,6 +939,125 @@ async def optimize_grid(
     except Exception as e:
         logger.error(f"Grid optimization failed: {e}")
         raise HTTPException(status_code=500, detail=f"Grid optimization failed: {str(e)}")
+
+@app.post("/api/collage/analyze-masonry")
+async def analyze_masonry_layout(
+    num_images: int = Form(..., ge=2, le=200),
+    width_mm: float = Form(default=304.8, ge=50, le=1219.2),
+    height_mm: float = Form(default=457.2, ge=50, le=1219.2),
+    dpi: int = Form(default=150, ge=72, le=300),
+    spacing: float = Form(default=40.0, ge=0.0, le=100.0)
+):
+    """
+    Analyze how the masonry layout algorithm would distribute photos
+    
+    This endpoint helps understand the layout algorithm without creating actual images.
+    Returns detailed information about column distribution, photo sizing, and layout optimization.
+    """
+    try:
+        # Calculate canvas dimensions
+        canvas_width = int((width_mm / 25.4) * dpi)
+        canvas_height = int((height_mm / 25.4) * dpi)
+        
+        # Create MasonryPacker instance
+        packer = MasonryPacker(canvas_width, canvas_height, spacing)
+        
+        # Calculate optimal columns
+        optimal_columns = packer._calculate_optimal_columns(num_images)
+        
+        # Distribute photos
+        distribution = packer._distribute_photos(num_images, optimal_columns)
+        
+        # Calculate layout metrics
+        column_width = (canvas_width - packer.spacing_pixels * (optimal_columns + 1)) / optimal_columns
+        max_photos_per_column = max(distribution)
+        min_photos_per_column = min(distribution)
+        
+        # Calculate spacing and coverage
+        total_spacing_width = packer.spacing_pixels * (optimal_columns + 1)
+        total_spacing_height = packer.spacing_pixels * (max_photos_per_column + 1)
+        available_width = canvas_width - total_spacing_width
+        available_height = canvas_height - total_spacing_height
+        
+        # Calculate efficiency metrics
+        width_utilization = (available_width / canvas_width) * 100
+        height_utilization = (available_height / canvas_height) * 100
+        
+        # Calculate average photo dimensions
+        avg_photo_width = column_width
+        avg_photo_height = available_height / max_photos_per_column
+        avg_aspect_ratio = avg_photo_width / avg_photo_height
+        
+        # Generate sample layout preview
+        sample_layout = []
+        photo_index = 0
+        for col in range(optimal_columns):
+            photos_in_column = distribution[col]
+            x = packer.spacing_pixels + col * (column_width + packer.spacing_pixels)
+            y = packer.spacing_pixels
+            
+            for row in range(photos_in_column):
+                sample_layout.append({
+                    'column': col,
+                    'row': row,
+                    'x': int(x),
+                    'y': int(y),
+                    'width': int(column_width),
+                    'height': int(avg_photo_height),
+                    'photo_index': photo_index
+                })
+                y += avg_photo_height + packer.spacing_pixels
+                photo_index += 1
+        
+        return {
+            "success": True,
+            "analysis": {
+                "canvas": {
+                    "width_px": canvas_width,
+                    "height_px": canvas_height,
+                    "width_mm": width_mm,
+                    "height_mm": height_mm,
+                    "dpi": dpi
+                },
+                "layout": {
+                    "optimal_columns": optimal_columns,
+                    "column_width": int(column_width),
+                    "spacing_pixels": packer.spacing_pixels,
+                    "spacing_percent": spacing
+                },
+                "distribution": {
+                    "total_photos": num_images,
+                    "photos_per_column": distribution,
+                    "max_photos_per_column": max_photos_per_column,
+                    "min_photos_per_column": min_photos_per_column,
+                    "distribution_evenness": "even" if max_photos_per_column == min_photos_per_column else "uneven"
+                },
+                "efficiency": {
+                    "width_utilization_percent": round(width_utilization, 2),
+                    "height_utilization_percent": round(height_utilization, 2),
+                    "overall_coverage": round((width_utilization + height_utilization) / 2, 2)
+                },
+                "photo_metrics": {
+                    "average_width": int(avg_photo_width),
+                    "average_height": int(avg_photo_height),
+                    "average_aspect_ratio": round(avg_aspect_ratio, 3),
+                    "aspect_ratio_quality": "square" if 0.8 <= avg_aspect_ratio <= 1.2 else "wide" if avg_aspect_ratio > 1.2 else "tall"
+                },
+                "sample_layout": sample_layout
+            },
+            "algorithm_features": {
+                "dynamic_column_calculation": True,
+                "even_distribution": True,
+                "full_canvas_coverage": True,
+                "aspect_ratio_consideration": True,
+                "flexible_spacing": True
+            },
+            "message": "Masonry layout analysis completed successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Masonry analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Masonry analysis failed: {str(e)}")
 
 # Request logging middleware
 @app.middleware("http")
