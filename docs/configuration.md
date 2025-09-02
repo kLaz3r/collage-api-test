@@ -30,7 +30,7 @@ The API supports two different layout algorithms, each with unique characteristi
 {
     "layout_style": "masonry",
     "maintain_aspect_ratio": true,
-    "spacing": 10
+    "spacing": 40.0
 }
 ```
 
@@ -58,7 +58,7 @@ The API supports two different layout algorithms, each with unique characteristi
 {
     "layout_style": "grid",
     "maintain_aspect_ratio": false,
-    "spacing": 5
+    "spacing": 20.0
 }
 ```
 
@@ -120,13 +120,13 @@ File Size (MB) ≈ (width_mm × height_mm × dpi²) / (25.4² × 8 × 1024²)
 
 Controls the gap between images in pixels.
 
-**Range:** 0-50 pixels (default: 10)
+**Range:** 0-100% of canvas dimensions (default: 40.0%, where 100% = 5% of canvas)
 
 **Effects:**
 
--   `0`: Images touch each other (no gaps)
--   `10`: Comfortable spacing for most layouts
--   `20+`: Generous spacing for clean, minimal look
+-   `0.0`: Images touch each other (no gaps)
+-   `40.0`: Comfortable spacing for most layouts (2% of canvas)
+-   `100.0`: Generous spacing for clean, minimal look (5% of canvas)
 
 ### Background Color
 

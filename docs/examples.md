@@ -98,7 +98,7 @@ class CollageClient:
         height_mm: float = 457.2,  # 18 inches = 457.2 mm
         dpi: int = 150,
         layout_style: str = "masonry",
-        spacing: int = 10,
+        spacing: float = 40.0,
         background_color: str = "#FFFFFF",
         maintain_aspect_ratio: bool = True,
         apply_shadow: bool = False
@@ -530,7 +530,7 @@ class CollageAPI {
             'height_mm' => 457.2, // 18 inches = 457.2 mm
             'dpi' => 150,
             'layout_style' => 'masonry',
-            'spacing' => 10,
+            'spacing' => 40.0,
             'background_color' => '#FFFFFF',
             'maintain_aspect_ratio' => true,
             'apply_shadow' => false

@@ -26,13 +26,13 @@ Calculate optimal grid dimensions and provide recommendations for perfect grid l
 
 #### Request Parameters
 
-| Parameter    | Type  | Required | Default | Range        | Description                      |
-| ------------ | ----- | -------- | ------- | ------------ | -------------------------------- |
-| `num_images` | int   | Yes      | -       | 2-200        | Number of images to analyze      |
-| `width_mm`   | float | No       | 304.8   | 101.6-1219.2 | Canvas width in millimeters      |
-| `height_mm`  | float | No       | 457.2   | 101.6-1219.2 | Canvas height in millimeters     |
-| `dpi`        | int   | No       | 150     | 72-300       | Resolution in dots per inch      |
-| `spacing`    | int   | No       | 10      | 0-50         | Spacing between images in pixels |
+| Parameter    | Type  | Required | Default | Range        | Description                          |
+| ------------ | ----- | -------- | ------- | ------------ | ------------------------------------ |
+| `num_images` | int   | Yes      | -       | 2-200        | Number of images to analyze          |
+| `width_mm`   | float | No       | 304.8   | 101.6-1219.2 | Canvas width in millimeters          |
+| `height_mm`  | float | No       | 457.2   | 101.6-1219.2 | Canvas height in millimeters         |
+| `dpi`        | int   | No       | 150     | 72-300       | Resolution in dots per inch          |
+| `spacing`    | float | No       | 40.0    | 0-100        | Spacing between images as percentage |
 
 #### Example Request
 
@@ -42,7 +42,7 @@ curl -X POST "http://localhost:8000/api/collage/optimize-grid" \
   -F "width_mm=304.8" \
   -F "height_mm=457.2" \
   -F "dpi=150" \
-  -F "spacing=10"
+  -F "spacing=40.0"
 ```
 
 #### Response Format
@@ -87,7 +87,7 @@ curl -X POST "http://localhost:8000/api/collage/optimize-grid" \
         "canvas_info": {
             "width": 1800,
             "height": 2700,
-            "spacing": 10
+            "spacing": 40.0
         }
     },
     "message": "Grid optimization calculated successfully"

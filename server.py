@@ -93,7 +93,7 @@ class CollageConfig(BaseModel):
     height_mm: float = Field(default=457.2, ge=50, le=1219.2)  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Field(default=150, ge=72, le=300)
     layout_style: LayoutStyle = LayoutStyle.MASONRY
-    spacing: int = Field(default=10, ge=0, le=50)
+    spacing: float = Field(default=40.0, ge=0.0, le=100.0)  # Spacing as percentage of canvas dimensions (0-100%, where 100% = 5% of canvas)
     background_color: str = Field(default="#FFFFFF")
     maintain_aspect_ratio: bool = True
     apply_shadow: bool = False
@@ -127,10 +127,11 @@ class ImageBlock:
 class MasonryPacker:
     """Implements masonry/bin packing algorithm for image layout"""
 
-    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
+    def __init__(self, canvas_width: int, canvas_height: int, spacing_percent: float = 2.0):
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
-        self.spacing = spacing
+        self.spacing_percent = spacing_percent
+        self.spacing_pixels = int(min(canvas_width, canvas_height) * (spacing_percent / 100.0) * 0.05)
         self.blocks = []
 
     def pack_images(self, image_paths: List[str], maintain_aspect: bool = True) -> List[ImageBlock]:
@@ -155,7 +156,7 @@ class MasonryPacker:
         num_columns = self._calculate_columns(len(images_info))
 
         # Aggressive column width calculation to maximize canvas usage
-        total_spacing_width = (num_columns - 1) * self.spacing
+        total_spacing_width = (num_columns - 1) * self.spacing_pixels
 
         # Use the absolute maximum available width - no unused space
         if len(images_info) > 80:
@@ -196,15 +197,15 @@ class MasonryPacker:
 
                 # If it fits in current position
                 if y + height <= self.canvas_height:
-                    x = min_col * (column_width + self.spacing)
+                    x = min_col * (column_width + self.spacing_pixels)
                     block = ImageBlock(x, y, width, height, img_info['path'])
                     blocks.append(block)
-                    column_heights[min_col] += height + self.spacing
+                    column_heights[min_col] += height + self.spacing_pixels
                     placed = True
                     break
                 else:
                     # Make space by adjusting this column height
-                    column_heights[min_col] = self.canvas_height - height - self.spacing
+                    column_heights[min_col] = self.canvas_height - height - self.spacing_pixels
 
         # Second pass: fill remaining gaps
         remaining_images = [img for img in images_info if all(
@@ -231,7 +232,7 @@ class MasonryPacker:
             column_spaces = []
             for col in range(num_columns):
                 y = column_heights[col]
-                available_height = self.canvas_height - y - self.spacing
+                available_height = self.canvas_height - y - self.spacing_pixels
                 if height <= available_height:
                     column_spaces.append((col, available_height))
 
@@ -240,11 +241,11 @@ class MasonryPacker:
                 column_spaces.sort(key=lambda x: x[1], reverse=True)
                 target_col = column_spaces[0][0]  # Column with most space
 
-                x = target_col * (column_width + self.spacing)
+                x = target_col * (column_width + self.spacing_pixels)
                 y = column_heights[target_col]
                 block = ImageBlock(x, y, width, height, img_info['path'])
                 blocks.append(block)
-                column_heights[target_col] += height + self.spacing
+                column_heights[target_col] += height + self.spacing_pixels
 
         # Third pass: force fit any remaining images by scaling them down, prioritizing bottom filling
         still_remaining = [img for img in images_info if all(
@@ -267,10 +268,10 @@ class MasonryPacker:
                 # Prioritize columns with least remaining space to balance heights
                 column_spaces.sort(key=lambda x: x[1])  # Smallest remaining space first
                 target_col = column_spaces[0][0]
-                available_height = column_spaces[0][1] - self.spacing
+                available_height = column_spaces[0][1] - self.spacing_pixels
 
                 # Scale image to fit available space
-                x = target_col * (column_width + self.spacing)
+                x = target_col * (column_width + self.spacing_pixels)
                 y = column_heights[target_col]
 
                 # Fit to available space while maintaining aspect ratio
@@ -291,7 +292,7 @@ class MasonryPacker:
 
                 block = ImageBlock(x, y, scaled_width, scaled_height, img_info['path'])
                 blocks.append(block)
-                column_heights[target_col] += scaled_height + self.spacing
+                column_heights[target_col] += scaled_height + self.spacing_pixels
 
         return blocks
 
@@ -324,10 +325,11 @@ class MasonryPacker:
 class GridPacker:
     """Implements grid layout for images"""
 
-    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
+    def __init__(self, canvas_width: int, canvas_height: int, spacing_percent: float = 2.0):
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
-        self.spacing = spacing
+        self.spacing_percent = spacing_percent
+        self.spacing_pixels = int(min(canvas_width, canvas_height) * (spacing_percent / 100.0) * 0.05)
 
     def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
         """Pack images in a uniform grid"""
@@ -339,15 +341,15 @@ class GridPacker:
         rows = int(np.ceil(num_images / cols))
 
         # Calculate cell dimensions
-        cell_width = (self.canvas_width - (cols - 1) * self.spacing) // cols
-        cell_height = (self.canvas_height - (rows - 1) * self.spacing) // rows
+        cell_width = (self.canvas_width - (cols - 1) * self.spacing_pixels) // cols
+        cell_height = (self.canvas_height - (rows - 1) * self.spacing_pixels) // rows
 
         for i, path in enumerate(image_paths):
             row = i // cols
             col = i % cols
 
-            x = col * (cell_width + self.spacing)
-            y = row * (cell_height + self.spacing)
+            x = col * (cell_width + self.spacing_pixels)
+            y = row * (cell_height + self.spacing_pixels)
 
             block = ImageBlock(x, y, cell_width, cell_height, path)
             blocks.append(block)
@@ -466,7 +468,7 @@ class GridPacker:
             'canvas_info': {
                 'width': self.canvas_width,
                 'height': self.canvas_height,
-                'spacing': self.spacing
+                'spacing': self.spacing_pixels
             }
         }
 
@@ -747,7 +749,7 @@ async def create_collage(
     height_mm: float = Form(default=457.2, ge=50, le=1219.2),  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Form(default=150, ge=72, le=300),
     layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
-    spacing: int = Form(default=10, ge=0, le=50),
+    spacing: float = Form(default=40.0, ge=0.0, le=100.0),
     background_color: str = Form(default="#FFFFFF"),
     maintain_aspect_ratio: bool = Form(default=True),
     apply_shadow: bool = Form(default=False)
@@ -756,7 +758,7 @@ async def create_collage(
 
     # Log incoming request details for debugging
     file_details = ", ".join([f"{f.filename} ({f.size if hasattr(f, 'size') else 'unknown size'})" for f in files if f.filename])
-    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_mm}mm, height={height_mm}mm, dpi={dpi}, layout={layout_style.value}, spacing={spacing}px, bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}")
+    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_mm}mm, height={height_mm}mm, dpi={dpi}, layout={layout_style.value}, spacing={spacing}% (scaled), bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}")
     logger.info(f"Files details: {file_details}")
 
     logger.info(f"Creating collage with {len(files)} files, layout: {layout_style}")
@@ -895,7 +897,7 @@ async def optimize_grid(
     width_mm: float = Form(default=304.8, ge=50, le=1219.2),  # 12 inches = 304.8 mm, 2-48 inches = 50-1219.2 mm
     height_mm: float = Form(default=457.2, ge=50, le=1219.2),  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Form(default=150, ge=72, le=300),
-    spacing: int = Form(default=10, ge=0, le=50)
+    spacing: float = Form(default=40.0, ge=0.0, le=100.0)
 ):
     """
     Calculate optimal grid dimensions and provide recommendations for perfect grid layout
