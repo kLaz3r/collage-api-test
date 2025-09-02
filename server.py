@@ -322,76 +322,7 @@ class MasonryPacker:
             # For very high counts, still keep reasonable number
             return min(12, max(8, int(num_images ** 0.4) + 2))
 
-def detect_overlaps(blocks: List[ImageBlock]) -> Dict[str, any]:
-    """Detect overlaps between image blocks and provide recommendations"""
-    overlaps = []
-    overlapping_count = 0
 
-    for i in range(len(blocks)):
-        for j in range(i + 1, len(blocks)):
-            block1 = blocks[i]
-            block2 = blocks[j]
-
-            # Check for overlap
-            if (block1.x < block2.x + block2.width and
-                block1.x + block1.width > block2.x and
-                block1.y < block2.y + block2.height and
-                block1.y + block1.height > block2.y):
-
-                overlaps.append({
-                    'image1_index': i,
-                    'image2_index': j,
-                    'image1_name': block1.image_path.split('/')[-1].split('\\')[-1],
-                    'image2_name': block2.image_path.split('/')[-1].split('\\')[-1],
-                    'overlap_area': calculate_overlap_area(block1, block2)
-                })
-                overlapping_count += 1
-
-    return {
-        'has_overlaps': len(overlaps) > 0,
-        'overlap_count': len(overlaps),
-        'overlapping_images': overlapping_count,
-        'details': overlaps,
-        'recommendation': get_removal_recommendation(len(blocks), len(overlaps))
-    }
-
-def calculate_overlap_area(block1: ImageBlock, block2: ImageBlock) -> int:
-    """Calculate the area of overlap between two blocks"""
-    x_overlap = max(0, min(block1.x + block1.width, block2.x + block2.width) - max(block1.x, block2.x))
-    y_overlap = max(0, min(block1.y + block1.height, block2.y + block2.height) - max(block1.y, block2.y))
-    return x_overlap * y_overlap
-
-def get_removal_recommendation(total_images: int, overlap_count: int) -> Dict[str, any]:
-    """Provide recommendation for how many images to remove based on overlaps"""
-    if overlap_count == 0:
-        return {
-            'action': 'none',
-            'message': 'Perfect! No overlaps detected.',
-            'images_to_remove': 0
-        }
-
-    # Heuristic: for moderate overlaps, suggest removing ~10% of images
-    # For heavy overlaps, suggest removing more
-    if overlap_count <= 3:
-        removal_suggestion = max(1, total_images // 20)  # Remove 5% for minor overlaps
-        suggestion_type = 'minor'
-    elif overlap_count <= 8:
-        removal_suggestion = max(2, total_images // 15)  # Remove 6-7% for moderate overlaps
-        suggestion_type = 'moderate'
-    else:
-        removal_suggestion = max(5, total_images // 10)  # Remove 10% for major overlaps
-        suggestion_type = 'significant'
-
-    removal_suggestion = min(removal_suggestion, max(1, total_images // 4))  # Cap at 25% removal
-
-    return {
-        'action': 'remove_images',
-        'type': suggestion_type,
-        'message': f'Remove {removal_suggestion} image(s) to eliminate overlaps and achieve a perfect layout.',
-        'images_to_remove': removal_suggestion,
-        'new_total_images': total_images - removal_suggestion,
-        'overlap_density': overlap_count / total_images
-    }
 
 # Rate limiting (simple in-memory implementation)
 rate_limit_store = defaultdict(list)
@@ -970,16 +901,12 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
         output_filename = f"collage_{job_id}.jpg"
         output_path = OUTPUT_DIR / output_filename
         generator.generate(blocks, str(output_path))
-        
-        # Check for overlaps and provide recommendations
-        overlap_analysis = detect_overlaps(blocks)
 
-        # Update job status with overlap information
+        # Update job status
         job_status[job_id]['status'] = JobStatus.COMPLETED
         job_status[job_id]['completed_at'] = datetime.now()
         job_status[job_id]['output_file'] = output_filename
         job_status[job_id]['progress'] = 100
-        job_status[job_id]['overlap_analysis'] = overlap_analysis
         
     except Exception as e:
         job_status[job_id]['status'] = JobStatus.FAILED
@@ -996,7 +923,6 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "create_collage": "/api/collage/create",
-            "analyze_overlaps": "/api/collage/analyze-overlaps",
             "get_status": "/api/collage/status/{job_id}",
             "download": "/api/collage/download/{job_id}",
             "list_jobs": "/api/collage/jobs"
@@ -1125,130 +1051,7 @@ async def download_collage(job_id: str):
         filename=f"collage_{job_id}.jpg"
     )
 
-@app.post("/api/collage/analyze-overlaps")
-async def analyze_overlaps(
-    files: List[UploadFile] = File(...),
-    width_inches: float = Form(default=12, ge=4, le=48),
-    height_inches: float = Form(default=18, ge=4, le=48),
-    dpi: int = Form(default=150, ge=72, le=300),
-    layout_style: str = Form(default="masonry"),
-    spacing: int = Form(default=10, ge=0, le=50),
-    maintain_aspect_ratio: bool = Form(default=True)
-):
-    """Analyze potential overlaps before creating collage and provide recommendations"""
-    try:
-        # Basic validation
-        if len(files) < 2:
-            raise HTTPException(status_code=400, detail="At least 2 images required")
-        if len(files) > 200:
-            raise HTTPException(status_code=400, detail="Maximum 200 images allowed")
 
-        # Convert layout_style to enum
-        try:
-            style_enum = LayoutStyle(layout_style.lower())
-        except ValueError:
-            style_enum = LayoutStyle.MASONRY
-
-        # Save temp files for analysis
-        temp_files = []
-        images_info = []
-
-        for file in files:
-            # Create temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                contents = await file.read()
-                temp_file.write(contents)
-                temp_files.append(temp_file.name)
-
-            # Validate and get image info
-            if not validate_image_file(temp_files[-1]):
-                # Cleanup on error
-                for f in temp_files:
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-                raise HTTPException(status_code=400, detail=f"Invalid image: {file.filename}")
-
-            # Get image dimensions
-            with Image.open(temp_files[-1]) as img:
-                images_info.append({
-                    'path': temp_files[-1],
-                    'width': img.width,
-                    'height': img.height,
-                    'aspect': img.width / img.height
-                })
-
-        # Sort by area (largest first)
-        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
-
-        # Simulate layout generation
-        canvas_width = int(width_inches * dpi)
-        canvas_height = int(height_inches * dpi)
-
-        # Choose packer based on layout style
-        if style_enum == LayoutStyle.MASONRY:
-            packer = MasonryPacker(canvas_width, canvas_height, spacing)
-            blocks = packer.pack_images([info['path'] for info in images_info], maintain_aspect_ratio)
-        elif style_enum == LayoutStyle.GRID:
-            packer = GridPacker(canvas_width, canvas_height, spacing)
-            blocks = packer.pack_images([info['path'] for info in images_info])
-        elif style_enum == LayoutStyle.RANDOM:
-            packer = RandomPacker(canvas_width, canvas_height, spacing)
-            blocks = packer.pack_images([info['path'] for info in images_info])
-        elif style_enum == LayoutStyle.SPIRAL:
-            packer = SpiralPacker(canvas_width, canvas_height, spacing)
-            blocks = packer.pack_images([info['path'] for info in images_info])
-        else:
-            packer = MasonryPacker(canvas_width, canvas_height, spacing)
-            blocks = packer.pack_images([info['path'] for info in images_info], maintain_aspect_ratio)
-
-        # Analyze overlaps
-        overlap_analysis = detect_overlaps(blocks)
-
-        # Suggest images to remove if there are overlaps
-        if overlap_analysis['has_overlaps'] and overlap_analysis['recommendation']['images_to_remove'] > 0:
-            # Find which images are causing most overlaps
-            overlap_problem_images = {}
-            for overlap in overlap_analysis['details']:
-                for idx in [overlap['image1_index'], overlap['image2_index']]:
-                    if idx not in overlap_problem_images:
-                        overlap_problem_images[idx] = 0
-                    overlap_problem_images[idx] += 1
-
-            # Sort by overlap count
-            images_by_overlaps = sorted(overlap_problem_images.items(), key=lambda x: x[1], reverse=True)
-            images_to_suggest_removing = images_by_overlaps[:overlap_analysis['recommendation']['images_to_remove']]
-
-            # Create recommendation with specific filenames
-            recommended_removals = []
-            for img_idx, overlap_count in images_to_suggest_removing:
-                if img_idx < len(images_info) and img_idx < len(files):
-                    recommended_removals.append({
-                        'index': img_idx,
-                        'filename': files[img_idx].filename or f"image_{img_idx}",
-                        'overlap_count': overlap_count
-                    })
-
-            overlap_analysis['recommended_removals'] = recommended_removals
-
-        # Cleanup temp files
-        for f in temp_files:
-            try:
-                os.unlink(f)
-            except:
-                pass
-
-        return overlap_analysis
-
-    except Exception as e:
-        # Cleanup temp files on error
-        for f in temp_files:
-            try:
-                os.unlink(f)
-            except:
-                pass
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 @app.get("/api/collage/jobs")
 async def list_jobs():
