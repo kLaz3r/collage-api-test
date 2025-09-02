@@ -296,7 +296,7 @@ Add drop shadow effects to images for depth.
 -   **2-10 images:** Fast processing, high quality
 -   **11-30 images:** Moderate processing time
 -   **31-60 images:** Slower processing, consider optimization
--   **61-100 images:** Longest processing time, monitor memory usage
+-   **61-200 images:** Longest processing time, monitor memory usage
 
 ### Resolution Guidelines
 

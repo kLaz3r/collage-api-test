@@ -108,8 +108,8 @@ class CollageClient:
         # Validate inputs
         if len(image_paths) < 2:
             raise ValueError("At least 2 images required")
-        if len(image_paths) > 100:
-            raise ValueError("Maximum 100 images allowed")
+        if len(image_paths) > 200:
+            raise ValueError("Maximum 200 images allowed")
 
         # Prepare files
         files = []

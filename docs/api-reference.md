@@ -28,7 +28,8 @@ Get API information and available endpoints.
         "create_collage": "/api/collage/create",
         "get_status": "/api/collage/status/{job_id}",
         "download": "/api/collage/download/{job_id}",
-        "list_jobs": "/api/collage/jobs"
+        "list_jobs": "/api/collage/jobs",
+        "optimize_grid": "/api/collage/optimize-grid"
     }
 }
 ```
@@ -41,7 +42,7 @@ Create a new collage from uploaded images.
 
 | Parameter             | Type    | Required | Default | Description                                             |
 | --------------------- | ------- | -------- | ------- | ------------------------------------------------------- |
-| files                 | File[]  | Yes      | -       | Image files to include in collage (2-100 files)         |
+| files                 | File[]  | Yes      | -       | Image files to include in collage (2-200 files)         |
 | width_inches          | float   | No       | 12      | Width of output collage in inches (4-48)                |
 | height_inches         | float   | No       | 18      | Height of output collage in inches (4-48)               |
 | dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                    |
@@ -272,6 +273,82 @@ Comprehensive health check endpoint that monitors system status, disk space, act
     -   `jobs`: Active job monitoring (warns if >50 active jobs)
     -   `dependencies`: Required dependency availability
 
+### POST /api/collage/optimize-grid
+
+Calculate optimal grid dimensions and provide recommendations for perfect grid layout.
+
+**Parameters:**
+
+| Parameter     | Type  | Required | Default | Range  | Description                      |
+| ------------- | ----- | -------- | ------- | ------ | -------------------------------- |
+| num_images    | int   | Yes      | -       | 2-200  | Number of images to analyze      |
+| width_inches  | float | No       | 12      | 4-48   | Canvas width in inches           |
+| height_inches | float | No       | 18      | 4-48   | Canvas height in inches          |
+| dpi           | int   | No       | 150     | 72-300 | Resolution in dots per inch      |
+| spacing       | int   | No       | 10      | 0-50   | Spacing between images in pixels |
+
+**Request Example:**
+
+```bash
+curl -X POST "http://localhost:8000/api/collage/optimize-grid" \
+  -F "num_images=13" \
+  -F "width_inches=12" \
+  -F "height_inches=18" \
+  -F "dpi=150" \
+  -F "spacing=10"
+```
+
+**Success Response (200):**
+
+```json
+{
+    "success": true,
+    "optimization": {
+        "current_grid": {
+            "total_images": 13,
+            "cols": 2,
+            "rows": 7,
+            "images_in_last_row": 1,
+            "is_perfect": false
+        },
+        "closest_perfect_grid": {
+            "type": "remove_images",
+            "total_images": 12,
+            "cols": 2,
+            "rows": 6,
+            "images_needed": 0,
+            "images_to_remove": 1
+        },
+        "recommendations": {
+            "add_images": [
+                {
+                    "images_needed": 3,
+                    "total_images": 16,
+                    "cols": 2,
+                    "rows": 8
+                }
+            ],
+            "remove_images": [
+                {
+                    "images_to_remove": 1,
+                    "total_images": 12,
+                    "cols": 2,
+                    "rows": 6
+                }
+            ]
+        },
+        "canvas_info": {
+            "width": 1800,
+            "height": 2700,
+            "spacing": 10
+        }
+    },
+    "message": "Grid optimization calculated successfully"
+}
+```
+
+**Use Case:** This endpoint helps frontend applications determine how many images to add or remove to achieve a perfect even grid without incomplete rows, improving the aesthetic quality of grid collages.
+
 ## Data Models
 
 ### CollageConfig
@@ -310,7 +387,7 @@ Job status and metadata.
 ## File Constraints
 
 -   **Minimum files:** 2 images
--   **Maximum files:** 100 images
+-   **Maximum files:** 200 images
 -   **Individual file size:** Maximum 10MB per image
 -   **Total size:** Maximum 500MB for all files combined
 -   **Supported formats:** JPEG, PNG, GIF, BMP, TIFF, WebP

@@ -573,6 +573,122 @@ class GridPacker:
 
         return blocks
 
+    def calculate_optimal_grid(self, num_images: int) -> dict:
+        """
+        Calculate optimal grid dimensions and provide recommendations for perfect grid
+        
+        Returns:
+            dict: Contains optimal grid info and recommendations
+        """
+        # Calculate current grid dimensions
+        cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
+        rows = int(np.ceil(num_images / cols))
+        
+        # Calculate how many images would fit in a complete grid
+        complete_grid_images = cols * rows
+        
+        # Calculate how many images are in the last row
+        images_in_last_row = num_images % cols if cols > 0 else 0
+        
+        # Find the next perfect grid sizes
+        next_perfect_grids = []
+        prev_perfect_grids = []
+        
+        # Look for next perfect grids (add images)
+        for i in range(1, 11):  # Check next 10 possibilities
+            test_images = num_images + i
+            if test_images > 200:  # Don't suggest more than 200 images
+                break
+            test_cols = int(np.sqrt(test_images * (self.canvas_width / self.canvas_height)))
+            test_rows = int(np.ceil(test_images / test_cols))
+            if test_images == test_cols * test_rows:  # Perfect grid
+                next_perfect_grids.append({
+                    'images_needed': i,
+                    'total_images': test_images,
+                    'cols': test_cols,
+                    'rows': test_rows
+                })
+                if len(next_perfect_grids) >= 3:  # Limit to 3 suggestions
+                    break
+        
+        # Look for previous perfect grids (remove images)
+        for i in range(1, min(11, num_images)):  # Check previous possibilities
+            test_images = num_images - i
+            if test_images < 2:  # Minimum 2 images required
+                break
+            test_cols = int(np.sqrt(test_images * (self.canvas_width / self.canvas_height)))
+            test_rows = int(np.ceil(test_images / test_cols))
+            if test_images == test_cols * test_rows:  # Perfect grid
+                prev_perfect_grids.append({
+                    'images_to_remove': i,
+                    'total_images': test_images,
+                    'cols': test_cols,
+                    'rows': test_rows
+                })
+                if len(prev_perfect_grids) >= 3:  # Limit to 3 suggestions
+                    break
+        
+        # Find the closest perfect grid
+        closest_perfect = None
+        min_diff = float('inf')
+        
+        # Check current grid
+        if num_images == complete_grid_images:
+            closest_perfect = {
+                'type': 'perfect',
+                'total_images': num_images,
+                'cols': cols,
+                'rows': rows,
+                'images_needed': 0,
+                'images_to_remove': 0
+            }
+        else:
+            # Check next perfect grids
+            for grid in next_perfect_grids:
+                if grid['images_needed'] < min_diff:
+                    min_diff = grid['images_needed']
+                    closest_perfect = {
+                        'type': 'add_images',
+                        'total_images': grid['total_images'],
+                        'cols': grid['cols'],
+                        'rows': grid['rows'],
+                        'images_needed': grid['images_needed'],
+                        'images_to_remove': 0
+                    }
+            
+            # Check previous perfect grids
+            for grid in prev_perfect_grids:
+                if grid['images_to_remove'] < min_diff:
+                    min_diff = grid['images_to_remove']
+                    closest_perfect = {
+                        'type': 'remove_images',
+                        'total_images': grid['total_images'],
+                        'cols': grid['cols'],
+                        'rows': grid['rows'],
+                        'images_needed': 0,
+                        'images_to_remove': grid['images_to_remove']
+                    }
+        
+        return {
+            'current_grid': {
+                'total_images': num_images,
+                'cols': cols,
+                'rows': rows,
+                'images_in_last_row': images_in_last_row,
+                'is_perfect': num_images == complete_grid_images
+            },
+            'closest_perfect_grid': closest_perfect,
+            'recommendations': {
+                'add_images': next_perfect_grids[:3],
+                'remove_images': prev_perfect_grids[:3]
+            },
+            'canvas_info': {
+                'width': self.canvas_width,
+                'height': self.canvas_height,
+                'spacing': self.spacing
+            }
+        }
+
 class RandomPacker:
     """Implements random layout for images"""
 
@@ -913,9 +1029,9 @@ async def create_collage(
     if len(files) < 2:
         logger.warning("Collage creation failed: insufficient files")
         raise HTTPException(status_code=400, detail="At least 2 images required")
-    if len(files) > 100:
+    if len(files) > 200:
         logger.warning("Collage creation failed: too many files")
-        raise HTTPException(status_code=400, detail="Maximum 100 images allowed")
+        raise HTTPException(status_code=400, detail="Maximum 200 images allowed")
 
     # Create job
     job_id = str(uuid.uuid4())
@@ -1024,8 +1140,8 @@ async def analyze_overlaps(
         # Basic validation
         if len(files) < 2:
             raise HTTPException(status_code=400, detail="At least 2 images required")
-        if len(files) > 100:
-            raise HTTPException(status_code=400, detail="Maximum 100 images allowed")
+        if len(files) > 200:
+            raise HTTPException(status_code=400, detail="Maximum 200 images allowed")
 
         # Convert layout_style to enum
         try:
@@ -1159,6 +1275,41 @@ async def cleanup_job(job_id: str):
     del job_status[job_id]
     
     return {"message": "Job cleaned up successfully"}
+
+@app.post("/api/collage/optimize-grid")
+async def optimize_grid(
+    num_images: int = Form(..., ge=2, le=200),
+    width_inches: float = Form(default=12, ge=4, le=48),
+    height_inches: float = Form(default=18, ge=4, le=48),
+    dpi: int = Form(default=150, ge=72, le=300),
+    spacing: int = Form(default=10, ge=0, le=50)
+):
+    """
+    Calculate optimal grid dimensions and provide recommendations for perfect grid layout
+    
+    This endpoint helps frontend applications determine how many images to add or remove
+    to achieve a perfect even grid without incomplete rows.
+    """
+    try:
+        # Calculate canvas dimensions
+        canvas_width = int(width_inches * dpi)
+        canvas_height = int(height_inches * dpi)
+        
+        # Create GridPacker instance
+        packer = GridPacker(canvas_width, canvas_height, spacing)
+        
+        # Get optimization recommendations
+        optimization = packer.calculate_optimal_grid(num_images)
+        
+        return {
+            "success": True,
+            "optimization": optimization,
+            "message": "Grid optimization calculated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Grid optimization failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Grid optimization failed: {str(e)}")
 
 # Request logging middleware
 @app.middleware("http")
