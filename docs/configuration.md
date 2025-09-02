@@ -124,9 +124,11 @@ Controls the gap between images in pixels.
 
 **Effects:**
 
--   `0.0`: Images touch each other (no gaps)
--   `40.0`: Comfortable spacing for most layouts (2% of canvas)
--   `100.0`: Generous spacing for clean, minimal look (5% of canvas)
+-   `0.0`: Images touch each other and canvas edges (no gaps)
+-   `40.0`: Comfortable spacing between images and from canvas edges (2% of canvas)
+-   `100.0`: Generous spacing between images and from canvas edges (5% of canvas)
+
+**Note:** Spacing is applied both between images and at the canvas edges for consistent visual balance.
 
 ### Background Color
 

@@ -155,8 +155,9 @@ class MasonryPacker:
         # Simple masonry layout - column-based approach
         num_columns = self._calculate_columns(len(images_info))
 
-        # Aggressive column width calculation to maximize canvas usage
-        total_spacing_width = (num_columns - 1) * self.spacing_pixels
+        # Add edge spacing to left and right sides
+        edge_spacing = self.spacing_pixels
+        total_spacing_width = (num_columns - 1) * self.spacing_pixels + 2 * edge_spacing
 
         # Use the absolute maximum available width - no unused space
         if len(images_info) > 80:
@@ -170,7 +171,7 @@ class MasonryPacker:
             available_width = self.canvas_width - total_spacing_width
             column_width = available_width // num_columns
 
-        column_heights = [0] * num_columns
+        column_heights = [edge_spacing] * num_columns
 
         # First pass: place images in columns
         for img_info in images_info:
@@ -197,7 +198,7 @@ class MasonryPacker:
 
                 # If it fits in current position
                 if y + height <= self.canvas_height:
-                    x = min_col * (column_width + self.spacing_pixels)
+                    x = edge_spacing + min_col * (column_width + self.spacing_pixels)
                     block = ImageBlock(x, y, width, height, img_info['path'])
                     blocks.append(block)
                     column_heights[min_col] += height + self.spacing_pixels
@@ -241,7 +242,7 @@ class MasonryPacker:
                 column_spaces.sort(key=lambda x: x[1], reverse=True)
                 target_col = column_spaces[0][0]  # Column with most space
 
-                x = target_col * (column_width + self.spacing_pixels)
+                x = edge_spacing + target_col * (column_width + self.spacing_pixels)
                 y = column_heights[target_col]
                 block = ImageBlock(x, y, width, height, img_info['path'])
                 blocks.append(block)
@@ -271,7 +272,7 @@ class MasonryPacker:
                 available_height = column_spaces[0][1] - self.spacing_pixels
 
                 # Scale image to fit available space
-                x = target_col * (column_width + self.spacing_pixels)
+                x = edge_spacing + target_col * (column_width + self.spacing_pixels)
                 y = column_heights[target_col]
 
                 # Fit to available space while maintaining aspect ratio
@@ -340,16 +341,19 @@ class GridPacker:
         cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
         rows = int(np.ceil(num_images / cols))
 
-        # Calculate cell dimensions
-        cell_width = (self.canvas_width - (cols - 1) * self.spacing_pixels) // cols
-        cell_height = (self.canvas_height - (rows - 1) * self.spacing_pixels) // rows
+        # Add edge spacing to all four sides
+        edge_spacing = self.spacing_pixels
+        
+        # Calculate cell dimensions with edge spacing
+        cell_width = (self.canvas_width - (cols - 1) * self.spacing_pixels - 2 * edge_spacing) // cols
+        cell_height = (self.canvas_height - (rows - 1) * self.spacing_pixels - 2 * edge_spacing) // rows
 
         for i, path in enumerate(image_paths):
             row = i // cols
             col = i % cols
 
-            x = col * (cell_width + self.spacing_pixels)
-            y = row * (cell_height + self.spacing_pixels)
+            x = edge_spacing + col * (cell_width + self.spacing_pixels)
+            y = edge_spacing + row * (cell_height + self.spacing_pixels)
 
             block = ImageBlock(x, y, cell_width, cell_height, path)
             blocks.append(block)

@@ -40,17 +40,17 @@ Create a new collage from uploaded images.
 
 **Parameters:**
 
-| Parameter             | Type    | Required | Default | Description                                                                        |
-| --------------------- | ------- | -------- | ------- | ---------------------------------------------------------------------------------- |
-| files                 | File[]  | Yes      | -       | Image files to include in collage (2-200 files)                                    |
-| width_mm              | float   | No       | 304.8   | Width of output collage in millimeters (50-1219.2)                                 |
-| height_mm             | float   | No       | 457.2   | Height of output collage in millimeters (50-1219.2)                                |
-| dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                                               |
-| layout_style          | string  | No       | masonry | Layout algorithm: `masonry`, `grid`                                                |
-| spacing               | float   | No       | 40.0    | Spacing between images as percentage of canvas (0-100%, where 100% = 5% of canvas) |
-| background_color      | string  | No       | #FFFFFF | Background color as hex code                                                       |
-| maintain_aspect_ratio | boolean | No       | true    | Preserve original image aspect ratios                                              |
-| apply_shadow          | boolean | No       | false   | Add drop shadow effects to images                                                  |
+| Parameter             | Type    | Required | Default | Description                                                                                              |
+| --------------------- | ------- | -------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| files                 | File[]  | Yes      | -       | Image files to include in collage (2-200 files)                                                          |
+| width_mm              | float   | No       | 304.8   | Width of output collage in millimeters (50-1219.2)                                                       |
+| height_mm             | float   | No       | 457.2   | Height of output collage in millimeters (50-1219.2)                                                      |
+| dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                                                                     |
+| layout_style          | string  | No       | masonry | Layout algorithm: `masonry`, `grid`                                                                      |
+| spacing               | float   | No       | 40.0    | Spacing between images and from canvas edges as percentage of canvas (0-100%, where 100% = 5% of canvas) |
+| background_color      | string  | No       | #FFFFFF | Background color as hex code                                                                             |
+| maintain_aspect_ratio | boolean | No       | true    | Preserve original image aspect ratios                                                                    |
+| apply_shadow          | boolean | No       | false   | Add drop shadow effects to images                                                                        |
 
 **Request Example:**
 
