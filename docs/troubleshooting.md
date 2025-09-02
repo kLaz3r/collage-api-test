@@ -158,8 +158,8 @@ def create_collage_with_retry(images, max_retries=3):
 ```json
 {
     "dpi": 300,
-    "width_inches": 16,
-    "height_inches": 20
+    "width_mm": 406.4,
+    "height_mm": 508
 }
 ```
 
@@ -758,8 +758,8 @@ ps aux | grep python
 curl -X POST "http://localhost:8000/api/collage/create" \
   -F "files=@small_image1.jpg" \
   -F "files=@small_image2.jpg" \
-  -F "width_inches=8" \
-  -F "height_inches=10" \
+  -F "width_mm=203.2" \
+  -F "height_mm=254" \
   -F "dpi=72"
 ```
 

@@ -91,8 +91,8 @@ class JobStatus(str, Enum):
 
 # Pydantic models
 class CollageConfig(BaseModel):
-    width_inches: float = Field(default=12, ge=4, le=48)
-    height_inches: float = Field(default=18, ge=4, le=48)
+    width_mm: float = Field(default=304.8, ge=101.6, le=1219.2)  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
+    height_mm: float = Field(default=457.2, ge=101.6, le=1219.2)  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
     dpi: int = Field(default=150, ge=72, le=300)
     layout_style: LayoutStyle = LayoutStyle.MASONRY
     spacing: int = Field(default=10, ge=0, le=50)
@@ -436,8 +436,8 @@ class JobStatus(str, Enum):
 
 # Pydantic models
 class CollageConfig(BaseModel):
-    width_inches: float = Field(default=12, ge=4, le=48)
-    height_inches: float = Field(default=18, ge=4, le=48)
+    width_mm: float = Field(default=304.8, ge=101.6, le=1219.2)  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
+    height_mm: float = Field(default=457.2, ge=101.6, le=1219.2)  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
     dpi: int = Field(default=150, ge=72, le=300)
     layout_style: LayoutStyle = LayoutStyle.MASONRY
     spacing: int = Field(default=10, ge=0, le=50)
@@ -753,8 +753,9 @@ class CollageGenerator:
     
     def __init__(self, config: CollageConfig):
         self.config = config
-        self.canvas_width = int(config.width_inches * config.dpi)
-        self.canvas_height = int(config.height_inches * config.dpi)
+        # Convert mm to pixels: 1 inch = 25.4 mm, so mm / 25.4 = inches, then * dpi = pixels
+        self.canvas_width = int((config.width_mm / 25.4) * config.dpi)
+        self.canvas_height = int((config.height_mm / 25.4) * config.dpi)
     
     def generate(self, image_blocks: List[ImageBlock], output_path: str) -> str:
         """Generate the final collage image"""
@@ -933,8 +934,8 @@ async def root():
 async def create_collage(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    width_inches: float = Form(default=12, ge=4, le=48),
-    height_inches: float = Form(default=18, ge=4, le=48),
+    width_mm: float = Form(default=304.8, ge=101.6, le=1219.2),  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
+    height_mm: float = Form(default=457.2, ge=101.6, le=1219.2),  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
     dpi: int = Form(default=150, ge=72, le=300),
     layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
     spacing: int = Form(default=10, ge=0, le=50),
@@ -946,7 +947,7 @@ async def create_collage(
 
     # Log incoming request details for debugging
     file_details = ", ".join([f"{f.filename} ({f.size if hasattr(f, 'size') else 'unknown size'})" for f in files if f.filename])
-    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_inches}in, height={height_inches}in, dpi={dpi}, layout={layout_style.value}, spacing={spacing}px, bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}")
+    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_mm}mm, height={height_mm}mm, dpi={dpi}, layout={layout_style.value}, spacing={spacing}px, bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}")
     logger.info(f"Files details: {file_details}")
 
     logger.info(f"Creating collage with {len(files)} files, layout: {layout_style}")
@@ -1004,8 +1005,8 @@ async def create_collage(
 
     # Create config
     config = CollageConfig(
-        width_inches=width_inches,
-        height_inches=height_inches,
+        width_mm=width_mm,
+        height_mm=height_mm,
         dpi=dpi,
         layout_style=layout_style,
         spacing=spacing,
@@ -1082,8 +1083,8 @@ async def cleanup_job(job_id: str):
 @app.post("/api/collage/optimize-grid")
 async def optimize_grid(
     num_images: int = Form(..., ge=2, le=200),
-    width_inches: float = Form(default=12, ge=4, le=48),
-    height_inches: float = Form(default=18, ge=4, le=48),
+    width_mm: float = Form(default=304.8, ge=101.6, le=1219.2),  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
+    height_mm: float = Form(default=457.2, ge=101.6, le=1219.2),  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
     dpi: int = Form(default=150, ge=72, le=300),
     spacing: int = Form(default=10, ge=0, le=50)
 ):
@@ -1095,8 +1096,9 @@ async def optimize_grid(
     """
     try:
         # Calculate canvas dimensions
-        canvas_width = int(width_inches * dpi)
-        canvas_height = int(height_inches * dpi)
+        # Convert mm to pixels: 1 inch = 25.4 mm, so mm / 25.4 = inches, then * dpi = pixels
+        canvas_width = int((width_mm / 25.4) * dpi)
+        canvas_height = int((height_mm / 25.4) * dpi)
         
         # Create GridPacker instance
         packer = GridPacker(canvas_width, canvas_height, spacing)

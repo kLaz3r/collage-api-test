@@ -40,8 +40,9 @@ The main orchestrator for collage creation:
 class CollageGenerator:
     def __init__(self, config: CollageConfig):
         self.config = config
-        self.canvas_width = int(config.width_inches * config.dpi)
-        self.canvas_height = int(config.height_inches * config.dpi)
+        # Convert mm to pixels: 1 inch = 25.4 mm, so mm / 25.4 = inches, then * dpi = pixels
+        self.canvas_width = int((config.width_mm / 25.4) * config.dpi)
+        self.canvas_height = int((config.height_mm / 25.4) * config.dpi)
 
     def generate(self, image_blocks: List[ImageBlock], output_path: str) -> str:
         # Creates the final collage image

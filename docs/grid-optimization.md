@@ -26,21 +26,21 @@ Calculate optimal grid dimensions and provide recommendations for perfect grid l
 
 #### Request Parameters
 
-| Parameter       | Type  | Required | Default | Range  | Description                      |
-| --------------- | ----- | -------- | ------- | ------ | -------------------------------- |
-| `num_images`    | int   | Yes      | -       | 2-200  | Number of images to analyze      |
-| `width_inches`  | float | No       | 12      | 4-48   | Canvas width in inches           |
-| `height_inches` | float | No       | 18      | 4-48   | Canvas height in inches          |
-| `dpi`           | int   | No       | 150     | 72-300 | Resolution in dots per inch      |
-| `spacing`       | int   | No       | 10      | 0-50   | Spacing between images in pixels |
+| Parameter    | Type  | Required | Default | Range        | Description                      |
+| ------------ | ----- | -------- | ------- | ------------ | -------------------------------- |
+| `num_images` | int   | Yes      | -       | 2-200        | Number of images to analyze      |
+| `width_mm`   | float | No       | 304.8   | 101.6-1219.2 | Canvas width in millimeters      |
+| `height_mm`  | float | No       | 457.2   | 101.6-1219.2 | Canvas height in millimeters     |
+| `dpi`        | int   | No       | 150     | 72-300       | Resolution in dots per inch      |
+| `spacing`    | int   | No       | 10      | 0-50         | Spacing between images in pixels |
 
 #### Example Request
 
 ```bash
 curl -X POST "http://localhost:8000/api/collage/optimize-grid" \
   -F "num_images=13" \
-  -F "width_inches=12" \
-  -F "height_inches=18" \
+  -F "width_mm=304.8" \
+  -F "height_mm=457.2" \
   -F "dpi=150" \
   -F "spacing=10"
 ```
@@ -125,13 +125,13 @@ curl -X POST "http://localhost:8000/api/collage/optimize-grid" \
 ```javascript
 async function getGridOptimization(
     numImages,
-    widthInches = 12,
-    heightInches = 18
+    widthMm = 304.8, // 12 inches = 304.8 mm
+    heightMm = 457.2 // 18 inches = 457.2 mm
 ) {
     const formData = new FormData();
     formData.append("num_images", numImages);
-    formData.append("width_inches", widthInches);
-    formData.append("height_inches", heightInches);
+    formData.append("width_mm", widthMm);
+    formData.append("height_mm", heightMm);
 
     const response = await fetch("/api/collage/optimize-grid", {
         method: "POST",

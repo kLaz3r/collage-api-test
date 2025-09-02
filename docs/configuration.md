@@ -126,23 +126,23 @@ Control the output size in real-world measurements.
 
 **Parameters:**
 
--   `width_inches`: Width in inches (4-48, default: 12)
--   `height_inches`: Height in inches (4-48, default: 18)
+-   `width_mm`: Width in millimeters (101.6-1219.2, default: 304.8)
+-   `height_mm`: Height in millimeters (101.6-1219.2, default: 457.2)
 
 **Common Print Sizes:**
 
 ```json
 // A4 Portrait
-{"width_inches": 8.27, "height_inches": 11.69}
+{"width_mm": 210, "height_mm": 297}
 
 // Letter Portrait
-{"width_inches": 8.5, "height_inches": 11}
+{"width_mm": 216, "height_mm": 279}
 
 // Poster
-{"width_inches": 24, "height_inches": 36}
+{"width_mm": 610, "height_mm": 914}
 
 // Instagram Post
-{"width_inches": 1080/150, "height_inches": 1080/150} // ~7.2 inches at 150 DPI
+{"width_mm": 183, "height_mm": 183} // ~7.2 inches at 150 DPI
 ```
 
 ### Resolution (DPI)
@@ -164,7 +164,7 @@ Control the print quality and file size.
 **File Size Estimation:**
 
 ```
-File Size (MB) ≈ (width_inches × height_inches × dpi²) / (8 × 1024²)
+File Size (MB) ≈ (width_mm × height_mm × dpi²) / (25.4² × 8 × 1024²)
 ```
 
 ## Spacing and Positioning
@@ -233,8 +233,8 @@ Add drop shadow effects to images for depth.
 
 ```json
 {
-    "width_inches": 16,
-    "height_inches": 20,
+    "width_mm": 406.4,
+    "height_mm": 508,
     "dpi": 300,
     "layout_style": "masonry",
     "spacing": 15,
@@ -248,14 +248,14 @@ Add drop shadow effects to images for depth.
 
 ```json
 {
-  "width_inches": 1200/150,
-  "height_inches": 800/150,
-  "dpi": 72,
-  "layout_style": "grid",
-  "spacing": 5,
-  "background_color": "#F8F9FA",
-  "maintain_aspect_ratio": false,
-  "apply_shadow": true
+    "width_mm": 203.2,
+    "height_mm": 135.5,
+    "dpi": 72,
+    "layout_style": "grid",
+    "spacing": 5,
+    "background_color": "#F8F9FA",
+    "maintain_aspect_ratio": false,
+    "apply_shadow": true
 }
 ```
 
@@ -263,8 +263,8 @@ Add drop shadow effects to images for depth.
 
 ```json
 {
-    "width_inches": 18,
-    "height_inches": 24,
+    "width_mm": 457.2,
+    "height_mm": 609.6,
     "dpi": 150,
     "layout_style": "random",
     "spacing": 0,
@@ -278,8 +278,8 @@ Add drop shadow effects to images for depth.
 
 ```json
 {
-    "width_inches": 12,
-    "height_inches": 16,
+    "width_mm": 304.8,
+    "height_mm": 406.4,
     "dpi": 150,
     "layout_style": "masonry",
     "spacing": 20,

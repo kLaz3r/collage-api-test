@@ -94,8 +94,8 @@ class CollageClient:
     def create_custom_collage(
         self,
         image_paths: List[str],
-        width_inches: float = 12,
-        height_inches: float = 18,
+        width_mm: float = 304.8,  # 12 inches = 304.8 mm
+        height_mm: float = 457.2,  # 18 inches = 457.2 mm
         dpi: int = 150,
         layout_style: str = "masonry",
         spacing: int = 10,
@@ -126,8 +126,8 @@ class CollageClient:
 
         # Prepare data
         data = {
-            'width_inches': width_inches,
-            'height_inches': height_inches,
+            'width_mm': width_mm,
+            'height_mm': height_mm,
             'dpi': dpi,
             'layout_style': layout_style,
             'spacing': spacing,
@@ -188,8 +188,8 @@ client = CollageClient()
 # High-quality print collage
 job_id = client.create_custom_collage(
     image_paths=["img1.jpg", "img2.jpg", "img3.jpg"],
-    width_inches=16,
-    height_inches=20,
+    width_mm=406.4,  # 16 inches = 406.4 mm
+    height_mm=508,   # 20 inches = 508 mm
     dpi=300,
     layout_style="masonry",
     spacing=15,
@@ -330,8 +330,8 @@ function CollageCreator() {
             });
 
             // Add configuration
-            formData.append("width_inches", "12");
-            formData.append("height_inches", "18");
+            formData.append("width_mm", "304.8"); // 12 inches = 304.8 mm
+            formData.append("height_mm", "457.2"); // 18 inches = 457.2 mm
             formData.append("layout_style", "masonry");
 
             const response = await axios.post(
@@ -448,8 +448,8 @@ curl -X POST "http://localhost:8000/api/collage/create" \
   -F "files=@image1.jpg" \
   -F "files=@image2.jpg" \
   -F "files=@image3.jpg" \
-  -F "width_inches=16" \
-  -F "height_inches=20" \
+  -F "width_mm=406.4" \
+  -F "height_mm=508" \
   -F "dpi=300" \
   -F "layout_style=masonry" \
   -F "spacing=15" \
@@ -526,8 +526,8 @@ class CollageAPI {
 
         // Add configuration parameters
         $defaultConfig = [
-            'width_inches' => 12,
-            'height_inches' => 18,
+            'width_mm' => 304.8,  // 12 inches = 304.8 mm
+            'height_mm' => 457.2, // 18 inches = 457.2 mm
             'dpi' => 150,
             'layout_style' => 'masonry',
             'spacing' => 10,
@@ -619,8 +619,8 @@ try {
         'photo2.jpg',
         'photo3.jpg'
     ], [
-        'width_inches' => 16,
-        'height_inches' => 20,
+        'width_mm' => 406.4,  // 16 inches = 406.4 mm
+        'height_mm' => 508,   // 20 inches = 508 mm
         'layout_style' => 'grid'
     ]);
 
@@ -719,8 +719,8 @@ def create_batch_collage(image_paths, output_path):
             files=files,
             data={
                 'layout_style': 'masonry',
-                'width_inches': 12,
-                'height_inches': 18,
+                'width_mm': 304.8,  # 12 inches = 304.8 mm
+                'height_mm': 457.2, # 18 inches = 457.2 mm
                 'dpi': 150
             }
         )

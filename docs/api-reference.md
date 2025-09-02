@@ -43,8 +43,8 @@ Create a new collage from uploaded images.
 | Parameter             | Type    | Required | Default | Description                                             |
 | --------------------- | ------- | -------- | ------- | ------------------------------------------------------- |
 | files                 | File[]  | Yes      | -       | Image files to include in collage (2-200 files)         |
-| width_inches          | float   | No       | 12      | Width of output collage in inches (4-48)                |
-| height_inches         | float   | No       | 18      | Height of output collage in inches (4-48)               |
+| width_mm              | float   | No       | 304.8   | Width of output collage in millimeters (101.6-1219.2)   |
+| height_mm             | float   | No       | 457.2   | Height of output collage in millimeters (101.6-1219.2)  |
 | dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                    |
 | layout_style          | string  | No       | masonry | Layout algorithm: `masonry`, `grid`, `random`, `spiral` |
 | spacing               | int     | No       | 10      | Spacing between images in pixels (0-50)                 |
@@ -59,8 +59,8 @@ curl -X POST "http://localhost:8000/api/collage/create" \
   -F "files=@image1.jpg" \
   -F "files=@image2.jpg" \
   -F "files=@image3.jpg" \
-  -F "width_inches=16" \
-  -F "height_inches=20" \
+  -F "width_mm=406.4" \
+  -F "height_mm=508" \
   -F "layout_style=masonry" \
   -F "background_color=#F0F0F0"
 ```
@@ -279,21 +279,21 @@ Calculate optimal grid dimensions and provide recommendations for perfect grid l
 
 **Parameters:**
 
-| Parameter     | Type  | Required | Default | Range  | Description                      |
-| ------------- | ----- | -------- | ------- | ------ | -------------------------------- |
-| num_images    | int   | Yes      | -       | 2-200  | Number of images to analyze      |
-| width_inches  | float | No       | 12      | 4-48   | Canvas width in inches           |
-| height_inches | float | No       | 18      | 4-48   | Canvas height in inches          |
-| dpi           | int   | No       | 150     | 72-300 | Resolution in dots per inch      |
-| spacing       | int   | No       | 10      | 0-50   | Spacing between images in pixels |
+| Parameter  | Type  | Required | Default | Range        | Description                      |
+| ---------- | ----- | -------- | ------- | ------------ | -------------------------------- |
+| num_images | int   | Yes      | -       | 2-200        | Number of images to analyze      |
+| width_mm   | float | No       | 304.8   | 101.6-1219.2 | Canvas width in millimeters      |
+| height_mm  | float | No       | 457.2   | 101.6-1219.2 | Canvas height in millimeters     |
+| dpi        | int   | No       | 150     | 72-300       | Resolution in dots per inch      |
+| spacing    | int   | No       | 10      | 0-50         | Spacing between images in pixels |
 
 **Request Example:**
 
 ```bash
 curl -X POST "http://localhost:8000/api/collage/optimize-grid" \
   -F "num_images=13" \
-  -F "width_inches=12" \
-  -F "height_inches=18" \
+  -F "width_mm=304.8" \
+  -F "height_mm=457.2" \
   -F "dpi=150" \
   -F "spacing=10"
 ```
@@ -357,8 +357,8 @@ Configuration object for collage generation.
 
 ```python
 {
-  "width_inches": 12.0,        # 4-48 inches
-  "height_inches": 18.0,       # 4-48 inches
+  "width_mm": 304.8,           # 101.6-1219.2 mm (4-48 inches)
+  "height_mm": 457.2,          # 101.6-1219.2 mm (4-48 inches)
   "dpi": 150,                  # 72-300 DPI
   "layout_style": "masonry",   # "masonry" | "grid" | "random" | "spiral"
   "spacing": 10,               # 0-50 pixels
