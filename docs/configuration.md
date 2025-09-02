@@ -4,7 +4,7 @@ Detailed guide to configuring collage generation parameters, layout styles, and 
 
 ## Layout Styles
 
-The API supports four different layout algorithms, each with unique characteristics and use cases.
+The API supports two different layout algorithms, each with unique characteristics and use cases.
 
 ### Masonry Layout (Default)
 
@@ -62,62 +62,6 @@ The API supports four different layout algorithms, each with unique characterist
 }
 ```
 
-### Random Layout
-
-**Description:** Images are placed randomly across the canvas with overlapping and varied positioning for artistic effect.
-
-**Best for:**
-
--   Creative, artistic collages
--   Abstract compositions
--   When unpredictability is desired
--   Decorative purposes
-
-**Algorithm Details:**
-
--   Random positioning within canvas bounds
--   Potential overlapping of images
--   Variable image sizes and rotations
--   Non-deterministic results
-
-**Example Configuration:**
-
-```json
-{
-    "layout_style": "random",
-    "spacing": 0,
-    "apply_shadow": true
-}
-```
-
-### Spiral Layout
-
-**Description:** Images arranged in a spiral pattern from the center outward, creating a radial composition.
-
-**Best for:**
-
--   Circular or focal compositions
--   Creating visual flow from center
--   Artistic arrangements
--   When a central focal point is desired
-
-**Algorithm Details:**
-
--   Images placed in spiral pattern
--   Center-weighted composition
--   Maintains aspect ratios
--   Creates natural viewing flow
-
-**Example Configuration:**
-
-```json
-{
-    "layout_style": "spiral",
-    "maintain_aspect_ratio": true,
-    "background_color": "#000000"
-}
-```
-
 ## Size and Resolution Settings
 
 ### Physical Dimensions
@@ -126,8 +70,8 @@ Control the output size in real-world measurements.
 
 **Parameters:**
 
--   `width_mm`: Width in millimeters (101.6-1219.2, default: 304.8)
--   `height_mm`: Height in millimeters (101.6-1219.2, default: 457.2)
+-   `width_mm`: Width in millimeters (50-1219.2, default: 304.8)
+-   `height_mm`: Height in millimeters (50-1219.2, default: 457.2)
 
 **Common Print Sizes:**
 
@@ -143,6 +87,9 @@ Control the output size in real-world measurements.
 
 // Instagram Post
 {"width_mm": 183, "height_mm": 183} // ~7.2 inches at 150 DPI
+
+// Small Square (new minimum)
+{"width_mm": 50, "height_mm": 50} // ~2 inches at 150 DPI
 ```
 
 ### Resolution (DPI)
@@ -255,21 +202,6 @@ Add drop shadow effects to images for depth.
     "spacing": 5,
     "background_color": "#F8F9FA",
     "maintain_aspect_ratio": false,
-    "apply_shadow": true
-}
-```
-
-### Artistic Composition
-
-```json
-{
-    "width_mm": 457.2,
-    "height_mm": 609.6,
-    "dpi": 150,
-    "layout_style": "random",
-    "spacing": 0,
-    "background_color": "#000000",
-    "maintain_aspect_ratio": true,
     "apply_shadow": true
 }
 ```

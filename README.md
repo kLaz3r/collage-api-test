@@ -4,7 +4,7 @@ A high-performance FastAPI application for creating beautiful photo collages wit
 
 ## Features
 
--   **Multiple Layout Styles**: Masonry, Grid, Random, and Spiral layouts
+-   **Multiple Layout Styles**: Masonry and Grid layouts
 -   **High-Resolution Output**: Configurable DPI up to 300 for print-quality results
 -   **Smart Image Processing**: Aspect ratio preservation, intelligent cropping, and shadow effects
 -   **Asynchronous Processing**: Background job processing for large collage generation
@@ -37,8 +37,6 @@ A high-performance FastAPI application for creating beautiful photo collages wit
 
 -   **Masonry**: Pinterest-style layout with optimal space utilization
 -   **Grid**: Uniform grid layout for organized appearance
--   **Random**: Creative random positioning with collision detection
--   **Spiral**: Mathematical spiral arrangement for artistic layouts
 
 ## Quick Start
 

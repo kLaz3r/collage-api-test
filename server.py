@@ -80,8 +80,6 @@ job_status = {}
 class LayoutStyle(str, Enum):
     MASONRY = "masonry"
     GRID = "grid"
-    RANDOM = "random"
-    SPIRAL = "spiral"
 
 class JobStatus(str, Enum):
     PENDING = "pending"
@@ -91,8 +89,8 @@ class JobStatus(str, Enum):
 
 # Pydantic models
 class CollageConfig(BaseModel):
-    width_mm: float = Field(default=304.8, ge=101.6, le=1219.2)  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
-    height_mm: float = Field(default=457.2, ge=101.6, le=1219.2)  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
+    width_mm: float = Field(default=304.8, ge=50, le=1219.2)  # 12 inches = 304.8 mm, 2-48 inches = 50-1219.2 mm
+    height_mm: float = Field(default=457.2, ge=50, le=1219.2)  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Field(default=150, ge=72, le=300)
     layout_style: LayoutStyle = LayoutStyle.MASONRY
     spacing: int = Field(default=10, ge=0, le=50)
@@ -323,154 +321,6 @@ class MasonryPacker:
             return min(12, max(8, int(num_images ** 0.4) + 2))
 
 
-
-# Rate limiting (simple in-memory implementation)
-rate_limit_store = defaultdict(list)
-RATE_LIMIT_REQUESTS = 100  # requests per window
-RATE_LIMIT_WINDOW = 60  # seconds
-
-def check_rate_limit(client_ip: str) -> bool:
-    """Simple rate limiting check"""
-    now = time.time()
-    # Clean old requests
-    rate_limit_store[client_ip] = [
-        req_time for req_time in rate_limit_store[client_ip]
-        if now - req_time < RATE_LIMIT_WINDOW
-    ]
-
-    if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
-        return False
-
-    rate_limit_store[client_ip].append(now)
-    return True
-
-def validate_image_file(file_path: str) -> bool:
-    """Validate that file is actually an image using magic numbers"""
-    if not MAGIC_AVAILABLE:
-        # Fallback to basic PIL validation
-        try:
-            with Image.open(file_path) as img:
-                img.verify()
-            return True
-        except Exception:
-            return False
-
-    try:
-        mime = magic.Magic(mime=True)
-        file_type = mime.from_file(file_path)
-
-        allowed_types = [
-            'image/jpeg',
-            'image/png',
-            'image/gif',
-            'image/bmp',
-            'image/tiff',
-            'image/webp'
-        ]
-
-        return file_type in allowed_types
-    except Exception:
-        return False
-
-def sanitize_filename(filename: str) -> str:
-    """Sanitize filename to prevent path traversal"""
-    # Remove any path separators and dangerous characters
-    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
-    # Limit length
-    filename = filename[:100]
-    return filename
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('app.log', mode='a')
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Initialize FastAPI app
-app = FastAPI(
-    title="Collage Maker API",
-    description="Create beautiful photo collages with masonry layout",
-    version="1.0.0"
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Configuration
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("outputs")
-TEMP_DIR = Path("temp")
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB per image
-MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
-
-# Create directories
-for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
-    dir_path.mkdir(exist_ok=True)
-
-# Store job status (in production, use Redis)
-job_status = {}
-
-# Enums
-class LayoutStyle(str, Enum):
-    MASONRY = "masonry"
-    GRID = "grid"
-    RANDOM = "random"
-    SPIRAL = "spiral"
-
-class JobStatus(str, Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-# Pydantic models
-class CollageConfig(BaseModel):
-    width_mm: float = Field(default=304.8, ge=101.6, le=1219.2)  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
-    height_mm: float = Field(default=457.2, ge=101.6, le=1219.2)  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
-    dpi: int = Field(default=150, ge=72, le=300)
-    layout_style: LayoutStyle = LayoutStyle.MASONRY
-    spacing: int = Field(default=10, ge=0, le=50)
-    background_color: str = Field(default="#FFFFFF")
-    maintain_aspect_ratio: bool = True
-    apply_shadow: bool = False
-
-    @validator('background_color')
-    def validate_color(cls, v):
-        """Validate hex color format"""
-        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
-            raise ValueError('Invalid hex color format - must be #RRGGBB')
-        return v
-
-class CollageJob(BaseModel):
-    job_id: str
-    status: JobStatus
-    created_at: datetime
-    completed_at: Optional[datetime] = None
-    output_file: Optional[str] = None
-    error_message: Optional[str] = None
-    progress: int = Field(default=0, ge=0, le=100)
-
-class ImageBlock:
-    """Represents a single image block in the collage"""
-    def __init__(self, x: int, y: int, width: int, height: int, image_path: str = None):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-        self.image_path = image_path
-        self.image = None
-
 class GridPacker:
     """Implements grid layout for images"""
 
@@ -620,133 +470,106 @@ class GridPacker:
             }
         }
 
-class RandomPacker:
-    """Implements random layout for images"""
 
-    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
-        self.canvas_width = canvas_width
-        self.canvas_height = canvas_height
-        self.spacing = spacing
+# Rate limiting (simple in-memory implementation)
+rate_limit_store = defaultdict(list)
+RATE_LIMIT_REQUESTS = 100  # requests per window
+RATE_LIMIT_WINDOW = 60  # seconds
 
-    def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
-        """Pack images in random positions"""
-        blocks = []
+def check_rate_limit(client_ip: str) -> bool:
+    """Simple rate limiting check"""
+    now = time.time()
+    # Clean old requests
+    rate_limit_store[client_ip] = [
+        req_time for req_time in rate_limit_store[client_ip]
+        if now - req_time < RATE_LIMIT_WINDOW
+    ]
 
-        # Get image dimensions
-        images_info = []
-        for path in image_paths:
-            with Image.open(path) as img:
-                images_info.append({
-                    'path': path,
-                    'width': img.width,
-                    'height': img.height,
-                    'aspect': img.width / img.height
-                })
+    if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
+        return False
 
-        # Random layout with collision detection
-        max_attempts = 100
-        for img_info in images_info:
-            placed = False
-            attempts = 0
+    rate_limit_store[client_ip].append(now)
+    return True
 
-            while not placed and attempts < max_attempts:
-                # Random position
-                x = random.randint(0, self.canvas_width - 200)
-                y = random.randint(0, self.canvas_height - 200)
+def validate_image_file(file_path: str) -> bool:
+    """Validate that file is actually an image using magic numbers"""
+    if not MAGIC_AVAILABLE:
+        # Fallback to basic PIL validation
+        try:
+            with Image.open(file_path) as img:
+                img.verify()
+            return True
+        except Exception:
+            return False
 
-                # Random size (within reasonable bounds)
-                width = random.randint(150, min(400, self.canvas_width - x))
-                height = int(width / img_info['aspect'])
+    try:
+        mime = magic.Magic(mime=True)
+        file_type = mime.from_file(file_path)
 
-                # Check if it fits vertically
-                if y + height > self.canvas_height:
-                    height = self.canvas_height - y
-                    width = int(height * img_info['aspect'])
+        allowed_types = [
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/bmp',
+            'image/tiff',
+            'image/webp'
+        ]
 
-                # Check for collisions with existing blocks
-                collision = False
-                for block in blocks:
-                    if self._blocks_overlap(x, y, width, height, block):
-                        collision = True
-                        break
+        return file_type in allowed_types
+    except Exception:
+        return False
 
-                if not collision:
-                    block = ImageBlock(x, y, width, height, img_info['path'])
-                    blocks.append(block)
-                    placed = True
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal"""
+    # Remove any path separators and dangerous characters
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Limit length
+    filename = filename[:100]
+    return filename
 
-                attempts += 1
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log', mode='a')
+    ]
+)
+logger = logging.getLogger(__name__)
 
-            # If couldn't place randomly, place in next available spot
-            if not placed:
-                x = (len(blocks) % 5) * 200
-                y = (len(blocks) // 5) * 200
-                width = min(200, self.canvas_width - x)
-                height = min(200, self.canvas_height - y)
-                block = ImageBlock(x, y, width, height, img_info['path'])
-                blocks.append(block)
+# Initialize FastAPI app
+app = FastAPI(
+    title="Collage Maker API",
+    description="Create beautiful photo collages with masonry layout",
+    version="1.0.0"
+)
 
-        return blocks
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    def _blocks_overlap(self, x1: int, y1: int, w1: int, h1: int, block: ImageBlock) -> bool:
-        """Check if two blocks overlap"""
-        x2, y2, w2, h2 = block.x, block.y, block.width, block.height
-        return not (x1 + w1 + self.spacing <= x2 or
-                   x2 + w2 + self.spacing <= x1 or
-                   y1 + h1 + self.spacing <= y2 or
-                   y2 + h2 + self.spacing <= y1)
+# Configuration
+UPLOAD_DIR = Path("uploads")
+OUTPUT_DIR = Path("outputs")
+TEMP_DIR = Path("temp")
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB per image
+MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
 
-class SpiralPacker:
-    """Implements spiral layout for images"""
+# Create directories
+for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
+    dir_path.mkdir(exist_ok=True)
 
-    def __init__(self, canvas_width: int, canvas_height: int, spacing: int = 10):
-        self.canvas_width = canvas_width
-        self.canvas_height = canvas_height
-        self.spacing = spacing
 
-    def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
-        """Pack images in a spiral pattern"""
-        blocks = []
 
-        # Get image dimensions
-        images_info = []
-        for path in image_paths:
-            with Image.open(path) as img:
-                images_info.append({
-                    'path': path,
-                    'width': img.width,
-                    'height': img.height,
-                    'aspect': img.width / img.height
-                })
 
-        # Sort by size for better spiral effect
-        images_info.sort(key=lambda x: x['width'] * x['height'], reverse=True)
 
-        # Spiral parameters
-        center_x = self.canvas_width // 2
-        center_y = self.canvas_height // 2
-        angle = 0
-        radius = 50
-        angle_step = 0.5  # radians
-        radius_step = 30
 
-        for img_info in images_info:
-            # Calculate position on spiral
-            x = int(center_x + radius * np.cos(angle) - img_info['width'] // 2)
-            y = int(center_y + radius * np.sin(angle) - img_info['height'] // 2)
-
-            # Ensure image stays within bounds
-            x = max(0, min(x, self.canvas_width - img_info['width']))
-            y = max(0, min(y, self.canvas_height - img_info['height']))
-
-            block = ImageBlock(x, y, img_info['width'], img_info['height'], img_info['path'])
-            blocks.append(block)
-
-            # Move to next position in spiral
-            angle += angle_step
-            radius += radius_step
-
-        return blocks
 
 class CollageGenerator:
     """Generates the final collage image"""
@@ -873,20 +696,6 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
                 config.spacing
             )
             blocks = packer.pack_images(image_paths)
-        elif config.layout_style == LayoutStyle.RANDOM:
-            packer = RandomPacker(
-                generator.canvas_width,
-                generator.canvas_height,
-                config.spacing
-            )
-            blocks = packer.pack_images(image_paths)
-        elif config.layout_style == LayoutStyle.SPIRAL:
-            packer = SpiralPacker(
-                generator.canvas_width,
-                generator.canvas_height,
-                config.spacing
-            )
-            blocks = packer.pack_images(image_paths)
         else:
             # Default to masonry
             packer = MasonryPacker(
@@ -934,8 +743,8 @@ async def root():
 async def create_collage(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    width_mm: float = Form(default=304.8, ge=101.6, le=1219.2),  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
-    height_mm: float = Form(default=457.2, ge=101.6, le=1219.2),  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
+    width_mm: float = Form(default=304.8, ge=50, le=1219.2),  # 12 inches = 304.8 mm, 2-48 inches = 50-1219.2 mm
+    height_mm: float = Form(default=457.2, ge=50, le=1219.2),  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Form(default=150, ge=72, le=300),
     layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
     spacing: int = Form(default=10, ge=0, le=50),
@@ -1083,8 +892,8 @@ async def cleanup_job(job_id: str):
 @app.post("/api/collage/optimize-grid")
 async def optimize_grid(
     num_images: int = Form(..., ge=2, le=200),
-    width_mm: float = Form(default=304.8, ge=101.6, le=1219.2),  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
-    height_mm: float = Form(default=457.2, ge=101.6, le=1219.2),  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
+    width_mm: float = Form(default=304.8, ge=50, le=1219.2),  # 12 inches = 304.8 mm, 2-48 inches = 50-1219.2 mm
+    height_mm: float = Form(default=457.2, ge=50, le=1219.2),  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Form(default=150, ge=72, le=300),
     spacing: int = Form(default=10, ge=0, le=50)
 ):

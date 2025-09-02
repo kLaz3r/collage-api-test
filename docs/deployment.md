@@ -551,8 +551,8 @@ async def health_check():
 from pydantic import validator
 
 class SecureCollageConfig(BaseModel):
-    width_mm: float = Field(default=304.8, ge=101.6, le=1219.2)  # 12 inches = 304.8 mm, 4-48 inches = 101.6-1219.2 mm
-    height_mm: float = Field(default=457.2, ge=101.6, le=1219.2)  # 18 inches = 457.2 mm, 4-48 inches = 101.6-1219.2 mm
+    width_mm: float = Field(default=304.8, ge=50, le=1219.2)  # 12 inches = 304.8 mm, 2-48 inches = 50-1219.2 mm
+    height_mm: float = Field(default=457.2, ge=50, le=1219.2)  # 18 inches = 457.2 mm, 2-48 inches = 50-1219.2 mm
     dpi: int = Field(default=150, ge=72, le=300)
 
     @validator('background_color')

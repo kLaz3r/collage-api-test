@@ -71,10 +71,7 @@ class GridPacker:
         # Grid layout algorithm
         pass
 
-class RandomPacker:
-    def pack_images(self, image_paths: List[str]) -> List[ImageBlock]:
-        # Random layout algorithm
-        pass
+
 ```
 
 #### `ImageBlock`

@@ -40,17 +40,17 @@ Create a new collage from uploaded images.
 
 **Parameters:**
 
-| Parameter             | Type    | Required | Default | Description                                             |
-| --------------------- | ------- | -------- | ------- | ------------------------------------------------------- |
-| files                 | File[]  | Yes      | -       | Image files to include in collage (2-200 files)         |
-| width_mm              | float   | No       | 304.8   | Width of output collage in millimeters (101.6-1219.2)   |
-| height_mm             | float   | No       | 457.2   | Height of output collage in millimeters (101.6-1219.2)  |
-| dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                    |
-| layout_style          | string  | No       | masonry | Layout algorithm: `masonry`, `grid`, `random`, `spiral` |
-| spacing               | int     | No       | 10      | Spacing between images in pixels (0-50)                 |
-| background_color      | string  | No       | #FFFFFF | Background color as hex code                            |
-| maintain_aspect_ratio | boolean | No       | true    | Preserve original image aspect ratios                   |
-| apply_shadow          | boolean | No       | false   | Add drop shadow effects to images                       |
+| Parameter             | Type    | Required | Default | Description                                         |
+| --------------------- | ------- | -------- | ------- | --------------------------------------------------- |
+| files                 | File[]  | Yes      | -       | Image files to include in collage (2-200 files)     |
+| width_mm              | float   | No       | 304.8   | Width of output collage in millimeters (50-1219.2)  |
+| height_mm             | float   | No       | 457.2   | Height of output collage in millimeters (50-1219.2) |
+| dpi                   | int     | No       | 150     | Resolution in dots per inch (72-300)                |
+| layout_style          | string  | No       | masonry | Layout algorithm: `masonry`, `grid`                 |
+| spacing               | int     | No       | 10      | Spacing between images in pixels (0-50)             |
+| background_color      | string  | No       | #FFFFFF | Background color as hex code                        |
+| maintain_aspect_ratio | boolean | No       | true    | Preserve original image aspect ratios               |
+| apply_shadow          | boolean | No       | false   | Add drop shadow effects to images                   |
 
 **Request Example:**
 
@@ -279,13 +279,13 @@ Calculate optimal grid dimensions and provide recommendations for perfect grid l
 
 **Parameters:**
 
-| Parameter  | Type  | Required | Default | Range        | Description                      |
-| ---------- | ----- | -------- | ------- | ------------ | -------------------------------- |
-| num_images | int   | Yes      | -       | 2-200        | Number of images to analyze      |
-| width_mm   | float | No       | 304.8   | 101.6-1219.2 | Canvas width in millimeters      |
-| height_mm  | float | No       | 457.2   | 101.6-1219.2 | Canvas height in millimeters     |
-| dpi        | int   | No       | 150     | 72-300       | Resolution in dots per inch      |
-| spacing    | int   | No       | 10      | 0-50         | Spacing between images in pixels |
+| Parameter  | Type  | Required | Default | Range     | Description                      |
+| ---------- | ----- | -------- | ------- | --------- | -------------------------------- |
+| num_images | int   | Yes      | -       | 2-200     | Number of images to analyze      |
+| width_mm   | float | No       | 304.8   | 50-1219.2 | Canvas width in millimeters      |
+| height_mm  | float | No       | 457.2   | 50-1219.2 | Canvas height in millimeters     |
+| dpi        | int   | No       | 150     | 72-300    | Resolution in dots per inch      |
+| spacing    | int   | No       | 10      | 0-50      | Spacing between images in pixels |
 
 **Request Example:**
 
@@ -357,10 +357,10 @@ Configuration object for collage generation.
 
 ```python
 {
-  "width_mm": 304.8,           # 101.6-1219.2 mm (4-48 inches)
-  "height_mm": 457.2,          # 101.6-1219.2 mm (4-48 inches)
+  "width_mm": 304.8,           # 50-1219.2 mm (2-48 inches)
+  "height_mm": 457.2,          # 50-1219.2 mm (2-48 inches)
   "dpi": 150,                  # 72-300 DPI
-  "layout_style": "masonry",   # "masonry" | "grid" | "random" | "spiral"
+  "layout_style": "masonry",   # "masonry" | "grid"
   "spacing": 10,               # 0-50 pixels
   "background_color": "#FFFFFF", # Hex color code
   "maintain_aspect_ratio": true, # boolean
