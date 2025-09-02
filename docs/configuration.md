@@ -130,6 +130,29 @@ Controls the gap between images in pixels.
 
 **Note:** Spacing is applied both between images and at the canvas edges for consistent visual balance.
 
+### Output Format
+
+Controls the file format of the generated collage.
+
+**Options:**
+
+-   `jpeg` - JPEG format (default, good compression, no transparency)
+-   `png` - PNG format (lossless, supports transparency)
+-   `tiff` - TIFF format (high quality, lossless, good for printing)
+
+**Default:** `jpeg`
+
+**Use Cases:**
+
+-   **JPEG**: Web use, email, general sharing (smaller file size)
+-   **PNG**: When transparency is needed, web graphics, logos
+-   **TIFF**: High-quality printing, archival purposes, professional use
+
+**Special Features:**
+
+-   **PNG**: Supports transparent backgrounds when using `#00000000` as background color
+-   **TIFF**: Uses LZW compression for optimal file size while maintaining quality
+
 ### Background Color
 
 Set the canvas background color.
@@ -189,7 +212,8 @@ Add drop shadow effects to images for depth.
     "spacing": 15,
     "background_color": "#FFFFFF",
     "maintain_aspect_ratio": true,
-    "apply_shadow": false
+    "apply_shadow": false,
+    "output_format": "tiff"
 }
 ```
 
@@ -204,7 +228,8 @@ Add drop shadow effects to images for depth.
     "spacing": 5,
     "background_color": "#F8F9FA",
     "maintain_aspect_ratio": false,
-    "apply_shadow": true
+    "apply_shadow": true,
+    "output_format": "jpeg"
 }
 ```
 
@@ -219,7 +244,24 @@ Add drop shadow effects to images for depth.
     "spacing": 20,
     "background_color": "#FFFFFF",
     "maintain_aspect_ratio": true,
-    "apply_shadow": false
+    "apply_shadow": false,
+    "output_format": "jpeg"
+}
+```
+
+### PNG with Transparency
+
+```json
+{
+    "width_mm": 203.2,
+    "height_mm": 203.2,
+    "dpi": 150,
+    "layout_style": "grid",
+    "spacing": 40,
+    "background_color": "#00000000",
+    "maintain_aspect_ratio": true,
+    "apply_shadow": false,
+    "output_format": "png"
 }
 ```
 

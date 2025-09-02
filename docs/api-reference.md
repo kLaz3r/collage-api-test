@@ -51,8 +51,11 @@ Create a new collage from uploaded images.
 | background_color      | string  | No       | #FFFFFF | Background color as hex code                                                                             |
 | maintain_aspect_ratio | boolean | No       | true    | Preserve original image aspect ratios                                                                    |
 | apply_shadow          | boolean | No       | false   | Add drop shadow effects to images                                                                        |
+| output_format         | string  | No       | jpeg    | Output format: `jpeg`, `png`, `tiff`                                                                     |
 
-**Request Example:**
+**Request Examples:**
+
+**Basic JPEG Collage:**
 
 ```bash
 curl -X POST "http://localhost:8000/api/collage/create" \
@@ -63,6 +66,26 @@ curl -X POST "http://localhost:8000/api/collage/create" \
   -F "height_mm=508" \
   -F "layout_style=masonry" \
   -F "background_color=#F0F0F0"
+```
+
+**PNG with Transparency:**
+
+```bash
+curl -X POST "http://localhost:8000/api/collage/create" \
+  -F "files=@image1.jpg" \
+  -F "files=@image2.jpg" \
+  -F "output_format=png" \
+  -F "background_color=#00000000"
+```
+
+**High-Quality TIFF:**
+
+```bash
+curl -X POST "http://localhost:8000/api/collage/create" \
+  -F "files=@image1.jpg" \
+  -F "files=@image2.jpg" \
+  -F "output_format=tiff" \
+  -F "dpi=300"
 ```
 
 **Success Response (200):**

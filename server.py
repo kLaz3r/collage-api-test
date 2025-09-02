@@ -81,6 +81,11 @@ class LayoutStyle(str, Enum):
     MASONRY = "masonry"
     GRID = "grid"
 
+class OutputFormat(str, Enum):
+    JPEG = "jpeg"
+    PNG = "png"
+    TIFF = "tiff"
+
 class JobStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -97,12 +102,13 @@ class CollageConfig(BaseModel):
     background_color: str = Field(default="#FFFFFF")
     maintain_aspect_ratio: bool = True
     apply_shadow: bool = False
+    output_format: OutputFormat = OutputFormat.JPEG
 
     @validator('background_color')
     def validate_color(cls, v):
-        """Validate hex color format"""
-        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
-            raise ValueError('Invalid hex color format - must be #RRGGBB')
+        """Validate hex color format - supports #RRGGBB and #RRGGBBAA (with alpha)"""
+        if not re.match(r'^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$', v):
+            raise ValueError('Invalid hex color format - must be #RRGGBB or #RRGGBBAA (with alpha)')
         return v
 
 class CollageJob(BaseModel):
@@ -613,8 +619,23 @@ class CollageGenerator:
                 print(f"Error processing image {block.image_path}: {e}")
                 continue
         
-        # Save the final image
-        canvas.save(output_path, 'JPEG', quality=95, dpi=(self.config.dpi, self.config.dpi))
+        # Save the final image in the specified format
+        if self.config.output_format == OutputFormat.JPEG:
+            canvas.save(output_path, 'JPEG', quality=95, dpi=(self.config.dpi, self.config.dpi))
+        elif self.config.output_format == OutputFormat.PNG:
+            # Convert to RGBA for PNG to support transparency if needed
+            if self.config.background_color == "#00000000":  # Transparent background
+                canvas = canvas.convert('RGBA')
+                # Make background transparent
+                data = np.array(canvas)
+                # Find white pixels and make them transparent
+                white_pixels = np.all(data[:, :, :3] == [255, 255, 255], axis=2)
+                data[white_pixels, 3] = 0
+                canvas = Image.fromarray(data)
+            canvas.save(output_path, 'PNG', dpi=(self.config.dpi, self.config.dpi))
+        elif self.config.output_format == OutputFormat.TIFF:
+            canvas.save(output_path, 'TIFF', dpi=(self.config.dpi, self.config.dpi), compression='tiff_lzw')
+        
         return output_path
     
     def _smart_resize(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
@@ -714,7 +735,8 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
         job_status[job_id]['progress'] = 50
         
         # Generate collage
-        output_filename = f"collage_{job_id}.jpg"
+        file_extension = config.output_format.value
+        output_filename = f"collage_{job_id}.{file_extension}"
         output_path = OUTPUT_DIR / output_filename
         generator.generate(blocks, str(output_path))
 
@@ -756,13 +778,14 @@ async def create_collage(
     spacing: float = Form(default=40.0, ge=0.0, le=100.0),
     background_color: str = Form(default="#FFFFFF"),
     maintain_aspect_ratio: bool = Form(default=True),
-    apply_shadow: bool = Form(default=False)
+    apply_shadow: bool = Form(default=False),
+    output_format: OutputFormat = Form(default=OutputFormat.JPEG)
 ):
     """Create a new collage from uploaded images"""
 
     # Log incoming request details for debugging
     file_details = ", ".join([f"{f.filename} ({f.size if hasattr(f, 'size') else 'unknown size'})" for f in files if f.filename])
-    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_mm}mm, height={height_mm}mm, dpi={dpi}, layout={layout_style.value}, spacing={spacing}% (scaled), bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}")
+    logger.info(f"Incoming request: {len(files)} files received - Parameters: width={width_mm}mm, height={height_mm}mm, dpi={dpi}, layout={layout_style.value}, spacing={spacing}% (scaled), bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}, format={output_format.value}")
     logger.info(f"Files details: {file_details}")
 
     logger.info(f"Creating collage with {len(files)} files, layout: {layout_style}")
@@ -818,17 +841,18 @@ async def create_collage(
 
         image_paths.append(str(file_path))
 
-    # Create config
-    config = CollageConfig(
-        width_mm=width_mm,
-        height_mm=height_mm,
-        dpi=dpi,
-        layout_style=layout_style,
-        spacing=spacing,
-        background_color=background_color,
-        maintain_aspect_ratio=maintain_aspect_ratio,
-        apply_shadow=apply_shadow
-    )
+            # Create config
+        config = CollageConfig(
+            width_mm=width_mm,
+            height_mm=height_mm,
+            dpi=dpi,
+            layout_style=layout_style,
+            spacing=spacing,
+            background_color=background_color,
+            maintain_aspect_ratio=maintain_aspect_ratio,
+            apply_shadow=apply_shadow,
+            output_format=output_format
+        )
 
     logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
 
@@ -861,10 +885,19 @@ async def download_collage(job_id: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Output file not found")
     
+    # Determine media type and filename based on file extension
+    file_extension = file_path.suffix.lower()
+    if file_extension == '.png':
+        media_type = 'image/png'
+    elif file_extension == '.tiff' or file_extension == '.tif':
+        media_type = 'image/tiff'
+    else:
+        media_type = 'image/jpeg'
+    
     return FileResponse(
         path=file_path,
-        media_type='image/jpeg',
-        filename=f"collage_{job_id}.jpg"
+        media_type=media_type,
+        filename=job['output_file']
     )
 
 

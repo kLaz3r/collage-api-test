@@ -101,7 +101,8 @@ class CollageClient:
         spacing: float = 40.0,
         background_color: str = "#FFFFFF",
         maintain_aspect_ratio: bool = True,
-        apply_shadow: bool = False
+        apply_shadow: bool = False,
+        output_format: str = "jpeg"
     ) -> Optional[str]:
         """Create a collage with custom configuration"""
 
@@ -133,7 +134,8 @@ class CollageClient:
             'spacing': spacing,
             'background_color': background_color,
             'maintain_aspect_ratio': maintain_aspect_ratio,
-            'apply_shadow': apply_shadow
+            'apply_shadow': apply_shadow,
+            'output_format': output_format
         }
 
         # Make request
