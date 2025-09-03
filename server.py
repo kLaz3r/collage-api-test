@@ -615,42 +615,27 @@ class CollageGenerator:
         return output_path
     
     def _smart_resize(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
-        """Resize image with even cropping to maintain composition"""
-        img_aspect = img.width / img.height
-        target_aspect = target_width / target_height
+        """Resize without distortion using scale-to-cover and center crop.
 
-        if abs(img_aspect - target_aspect) < 0.1:
-            # Aspects are similar, simple resize
+        If maintain_aspect_ratio is False in config, allow direct resize (stretching).
+        """
+        # If stretching is explicitly allowed, do a direct resize
+        if not self.config.maintain_aspect_ratio:
             return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
-        # Enhanced cropping for more balanced crop distribution
-        if img_aspect > target_aspect:
-            # Image is wider - need to crop horizontally (sides)
-            new_width = int(img.height * target_aspect)
+        # Scale to cover the target box while preserving aspect ratio
+        src_w, src_h = img.width, img.height
+        scale = max(target_width / src_w, target_height / src_h)
+        new_w = max(1, int(round(src_w * scale)))
+        new_h = max(1, int(round(src_h * scale)))
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-            # Distribute crop more evenly from both sides instead of just center-cropping
-            total_crop = img.width - new_width
-            left_crop = total_crop // 3  # Crop more from left
-            right_crop = total_crop - left_crop  # Crop less from right to preserve composition
-
-            left = left_crop
-            right = left + new_width
-            img = img.crop((left, 0, right, img.height))
-
-        else:
-            # Image is taller - need to crop vertically (top/bottom)
-            new_height = int(img.width / target_aspect)
-
-            # Distribute crop more evenly from top and bottom instead of more from bottom
-            total_crop = img.height - new_height
-            top_crop = total_crop // 2       # Equal distribution from top
-            bottom_crop = total_crop // 2     # Equal distribution from bottom
-
-            top = top_crop
-            bottom = top + new_height
-            img = img.crop((0, top, img.width, bottom))
-
-        return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        # Center-crop to the exact target size
+        left = max(0, (new_w - target_width) // 2)
+        top = max(0, (new_h - target_height) // 2)
+        right = left + target_width
+        bottom = top + target_height
+        return img.crop((left, top, right, bottom))
     
     def _add_shadow(self, img: Image.Image) -> Image.Image:
         """Add drop shadow effect to image"""
