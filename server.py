@@ -589,8 +589,11 @@ class CollageGenerator:
                     if self.config.apply_shadow:
                         img_resized = self._add_shadow(img_resized)
                     
-                    # Paste onto canvas
-                    canvas.paste(img_resized, (block.x, block.y))
+                    # Paste onto canvas (respect alpha if present)
+                    if img_resized.mode == 'RGBA':
+                        canvas.paste(img_resized, (block.x, block.y), img_resized)
+                    else:
+                        canvas.paste(img_resized, (block.x, block.y))
             except Exception as e:
                 print(f"Error processing image {block.image_path}: {e}")
                 continue
@@ -638,19 +641,74 @@ class CollageGenerator:
         return img.crop((left, top, right, bottom))
     
     def _add_shadow(self, img: Image.Image) -> Image.Image:
-        """Add drop shadow effect to image"""
-        # Create shadow
-        shadow = Image.new('RGBA', (img.width + 20, img.height + 20), (0, 0, 0, 0))
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.rectangle([10, 10, img.width + 10, img.height + 10], fill=(0, 0, 0, 128))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=5))
-        
-        # Composite
-        result = Image.new('RGBA', shadow.size, (255, 255, 255, 0))
+        """Add a soft, offset drop shadow based on spacing.
+
+        Offset is 50% of spacing (both x and y). Shadow is blurred and slightly spread for a natural look.
+        """
+        # Calculate spacing in pixels to derive shadow parameters
+        spacing_pixels = int(min(self.canvas_width, self.canvas_height) * (self.config.spacing / 100.0) * 0.05)
+        offset = max(1, int(round(spacing_pixels * 0.12)))
+        blur_radius = max(3, int(round(spacing_pixels * 0.6)))
+        spread_px = max(0, int(round(spacing_pixels * 0.08)))
+        alpha_base = max(50, min(100, 80 + spacing_pixels // 8))
+
+        # Ensure the original is RGBA for correct compositing
+        base_rgb = img
+        base = img.convert('RGBA')
+
+        # Pad left/top only if blur would otherwise clip there (keep image anchored at top-left)
+        left_top_pad = max(0, blur_radius - offset)
+        right_bottom_pad = blur_radius + spread_px + offset
+
+        shadow_w = base.width + left_top_pad + right_bottom_pad
+        shadow_h = base.height + left_top_pad + right_bottom_pad
+        # Build rounded-rectangle alpha mask for softer corners
+        corner_radius = max(2, int(round(min(base.width, base.height) * 0.03)))
+        mask = Image.new('L', (base.width, base.height), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, base.width, base.height], radius=corner_radius, fill=255)
+
+        # Create alpha canvas, paste mask at offset, then blur for softness
+        alpha_canvas = Image.new('L', (shadow_w, shadow_h), 0)
+        alpha_canvas.paste(mask, (left_top_pad + offset, left_top_pad + offset))
+        alpha_blurred = alpha_canvas.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+        # Apply a directional gradient to reduce visibility on top/left (less overlap, less rectangular look)
+        alpha_arr = (np.array(alpha_blurred, dtype=np.float32) / 255.0)
+        h, w = alpha_arr.shape
+        yy, xx = np.mgrid[0:h, 0:w]
+        grad_x = np.clip(xx / max(1, w - 1), 0.0, 1.0) ** 0.6
+        grad_y = np.clip(yy / max(1, h - 1), 0.0, 1.0) ** 0.6
+        grad = grad_x * grad_y
+        alpha_scaled = np.clip(alpha_arr * grad * (alpha_base / 255.0), 0.0, 1.0)
+        alpha_final = (alpha_scaled * 255).astype(np.uint8)
+
+        # Build shadow from computed alpha
+        shadow = Image.new('RGBA', (shadow_w, shadow_h), (0, 0, 0, 0))
+        shadow.putalpha(Image.fromarray(alpha_final))
+
+        # Composite: place the original image at the top-left anchor (account for left/top pad only)
+        result = Image.new('RGBA', (shadow_w, shadow_h), (255, 255, 255, 0))
         result.paste(shadow, (0, 0))
-        result.paste(img, (0, 0))
-        
-        return result.convert('RGB')
+        result.paste(base_rgb, (left_top_pad, left_top_pad))
+
+        # Draw a subtle inner white border for added contrast
+        border_thickness = min(12, max(2, int(round(spacing_pixels * 0.14))))
+        if border_thickness > 0:
+            x0 = left_top_pad
+            y0 = left_top_pad
+            x1 = x0 + base.width
+            y1 = y0 + base.height
+            border_draw = ImageDraw.Draw(result)
+            # Top edge
+            border_draw.rectangle([x0, y0, x1 - 1, y0 + border_thickness - 1], fill=(255, 255, 255, 255))
+            # Bottom edge
+            border_draw.rectangle([x0, y1 - border_thickness, x1 - 1, y1 - 1], fill=(255, 255, 255, 255))
+            # Left edge
+            border_draw.rectangle([x0, y0, x0 + border_thickness - 1, y1 - 1], fill=(255, 255, 255, 255))
+            # Right edge
+            border_draw.rectangle([x1 - border_thickness, y0, x1 - 1, y1 - 1], fill=(255, 255, 255, 255))
+
+        return result
     
     def _parse_color(self, color_str: str) -> Tuple[int, int, int]:
         """Parse color string to RGB tuple"""
