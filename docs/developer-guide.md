@@ -10,12 +10,12 @@ The Collage Maker API is built with a modular architecture consisting of several
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   FastAPI App   │────│  Background Jobs │────│   File System   │
+│   FastAPI App   │────│ Celery + Redis   │────│   File System   │
 │                 │    │                  │    │                 │
-│ • REST Endpoints│    │ • Async Tasks    │    │ • Uploads/      │
+│ • REST Endpoints│    │ • Worker Tasks   │    │ • Uploads/      │
 │ • Request       │    │ • Job Tracking   │    │   Temp Files    │
 │   Validation    │    │ • Progress       │    │ • Outputs       │
-│ • CORS Support  │    │   Updates        │    │ • Cleanup       │
+│ • CORS Support  │    │   Updates (TTL)  │    │ • Cleanup       │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
          │                       │                       │
          └───────────────────────┼───────────────────────┘
@@ -122,21 +122,23 @@ class ImageBlock:
     job_status[job_id] = job.dict()
     ```
 
-4. **Background Processing**
+4. **Background Processing (Celery)**
     ```python
-    background_tasks.add_task(process_collage, job_id, image_paths, config)
+    celery_app.send_task(
+        "tasks.generate_collage_task",
+        args=[job_id, image_paths, config_payload],
+    )
     ```
 
 ### Background Task Processing
 
-The `process_collage` function handles the actual image processing:
+The Celery task `tasks.generate_collage_task` performs the actual image processing:
 
 ```python
 async def process_collage(job_id: str, image_paths: List[str], config: CollageConfig):
     try:
-        # Update status to processing
-        job_status[job_id]['status'] = JobStatus.PROCESSING
-        job_status[job_id]['progress'] = 10
+        # Update Redis job status
+        _update_job_sync(job_id, {"status": "processing", "progress": 10})
 
         # Initialize generator and packer
         generator = CollageGenerator(config)
@@ -150,22 +152,23 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
         blocks = packer.pack_images(image_paths, config.maintain_aspect_ratio)
 
         # Update progress
-        job_status[job_id]['progress'] = 50
+        _update_job_sync(job_id, {"progress": 50})
 
         # Generate final collage
         output_path = OUTPUT_DIR / f"collage_{job_id}.jpg"
         generator.generate(blocks, str(output_path))
 
         # Mark as completed
-        job_status[job_id]['status'] = JobStatus.COMPLETED
-        job_status[job_id]['completed_at'] = datetime.now()
-        job_status[job_id]['output_file'] = output_filename
-        job_status[job_id]['progress'] = 100
+        _update_job_sync(job_id, {
+            "status": "completed",
+            "completed_at": datetime.now().isoformat(),
+            "output_file": output_filename,
+            "progress": 100
+        })
 
     except Exception as e:
         # Handle errors
-        job_status[job_id]['status'] = JobStatus.FAILED
-        job_status[job_id]['error_message'] = str(e)
+        _update_job_sync(job_id, {"status": "failed", "error_message": str(e), "progress": 0})
 ```
 
 ## Layout Algorithms

@@ -54,6 +54,83 @@ uvicorn server:app --reload --host 0.0.0.0 --port 8000
 
 ## Production Deployment
 
+### Celery Worker and Redis (New)
+
+Jobs are now processed by a Celery worker and tracked in Redis with TTL. Run Redis, start a Celery worker, then run the API.
+
+Quick start:
+
+```bash
+# Start Redis (example)
+docker run -p 6379:6379 redis:7
+
+# Start Celery worker
+celery -A celery_app.celery_app worker -l info
+
+# Start API
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Docker Compose example:
+
+```yaml
+version: "3.8"
+services:
+    api:
+        build: .
+        ports:
+            - "8000:8000"
+        environment:
+            - APP_REDIS_URL=redis://redis:6379/0
+        command: uvicorn server:app --host 0.0.0.0 --port 8000
+        depends_on:
+            - redis
+        restart: unless-stopped
+
+    worker:
+        build: .
+        command: celery -A celery_app.celery_app worker -l info
+        environment:
+            - APP_REDIS_URL=redis://redis:6379/0
+        depends_on:
+            - redis
+        restart: unless-stopped
+
+    redis:
+        image: redis:7
+        ports:
+            - "6379:6379"
+        restart: unless-stopped
+```
+
+Systemd: run Celery worker as a separate unit alongside the API service.
+
+### Environment-based settings (pydantic-settings)
+
+Settings are loaded from environment variables with the `APP_` prefix. Example `.env`:
+
+```bash
+APP_APP_NAME="Collage Maker API"
+APP_APP_VERSION="1.0.0"
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_UPLOAD_DIR=/var/lib/collage-api/uploads
+APP_OUTPUT_DIR=/var/lib/collage-api/outputs
+APP_TEMP_DIR=/var/lib/collage-api/temp
+APP_MAX_IMAGE_SIZE=10485760
+APP_MAX_TOTAL_SIZE=524288000
+APP_MAX_CANVAS_PIXELS=250000000
+APP_RATE_LIMIT_REQUESTS=100
+APP_RATE_LIMIT_WINDOW_SECONDS=60
+APP_REDIS_URL=redis://localhost:6379/0
+APP_JOB_TTL_SECONDS=3600
+APP_CLEANUP_INTERVAL_SECONDS=600
+APP_CORS_ALLOW_ORIGINS=["https://yourdomain.com"]
+APP_CORS_ALLOW_CREDENTIALS=true
+APP_CORS_ALLOW_METHODS=["*"]
+APP_CORS_ALLOW_HEADERS=["*"]
+```
+
 ### Option 1: Docker Deployment
 
 #### Dockerfile

@@ -27,6 +27,7 @@ from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 from config import AppSettings
 from redis.asyncio import Redis as AsyncRedis
+from celery_app import celery_app
 
 # Security imports
 try:
@@ -1005,8 +1006,22 @@ async def create_collage(
 
     logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
 
-    # Start background processing
-    background_tasks.add_task(process_collage, job_id, image_paths, config)
+    # Enqueue background processing via Celery
+    config_payload = {
+        "width_mm": config.width_mm,
+        "height_mm": config.height_mm,
+        "dpi": config.dpi,
+        "layout_style": config.layout_style.value,
+        "spacing": config.spacing,
+        "background_color": config.background_color,
+        "maintain_aspect_ratio": config.maintain_aspect_ratio,
+        "apply_shadow": config.apply_shadow,
+        "output_format": config.output_format.value,
+    }
+    celery_app.send_task(
+        "tasks.generate_collage_task",
+        args=[job_id, image_paths, config_payload],
+    )
 
     return {"job_id": job_id, "status": "pending", "message": "Collage generation started"}
 

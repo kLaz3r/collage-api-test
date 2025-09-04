@@ -4,6 +4,39 @@ Common issues and solutions for the Collage Maker API.
 
 ## API Issues
 
+### Celery Task Not Registered
+
+**Error:** `Received unregistered task of type 'tasks.generate_collage_task'`
+
+**Solutions:**
+
+1. Ensure the Celery app includes the `tasks` module:
+
+```python
+# celery_app.py
+celery_app = Celery(
+    'collage_worker',
+    broker=_build_broker_url(),
+    backend=_build_broker_url(),
+    include=['tasks'],
+)
+```
+
+2. Restart the worker after code changes:
+
+```bash
+pkill -f 'celery.*collage_worker' || true
+celery -A celery_app.celery_app worker -l info
+```
+
+### Event loop is closed (Redis async in Celery)
+
+**Error:** RuntimeError: `Event loop is closed` when updating Redis from Celery tasks.
+
+**Cause:** Using async Redis in a Celery worker process.
+
+**Solution:** Use the synchronous Redis client in tasks for job updates.
+
 ### Job Stuck in Processing
 
 **Symptoms:**

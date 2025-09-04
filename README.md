@@ -7,63 +7,83 @@ A high-performance FastAPI application for creating beautiful photo collages wit
 -   **Multiple Layout Styles**: Masonry and Grid layouts
 -   **High-Resolution Output**: Configurable DPI up to 300 for print-quality results
 -   **Smart Image Processing**: Aspect ratio preservation, intelligent cropping, and shadow effects
--   **Asynchronous Processing**: Background job processing for large collage generation
+-   **Background Jobs via Celery**: Offloaded collage generation with Redis broker
+-   **Redis-backed Job Status**: Durable job progress with TTL cleanup
 -   **RESTful API**: Clean, well-documented endpoints with OpenAPI/Swagger support
 -   **File Management**: Automatic cleanup and size validation
 -   **CORS Support**: Ready for web application integration
 -   **🔒 Security First**: Magic number validation, rate limiting, and security headers
--   **📊 Production Ready**: Comprehensive health checks, logging, and monitoring
--   **🛡️ Input Validation**: Robust parameter validation and file type checking
-
-## Security & Production Features
-
-### 🔒 Security Features
-
--   **File Upload Security**: Magic number validation, filename sanitization, size limits
--   **Rate Limiting**: 100 requests per minute per IP address
--   **Security Headers**: Automatic addition of security headers on all responses
--   **Input Validation**: Comprehensive parameter validation with Pydantic models
--   **Path Traversal Protection**: Filename sanitization prevents directory traversal attacks
-
-### 📊 Production Features
-
--   **Comprehensive Health Checks**: Monitor system status, disk space, active jobs, and dependencies
--   **Request Logging**: All API requests logged with timing and client IP
--   **Error Handling**: Detailed error messages and proper HTTP status codes
--   **File Management**: Automatic cleanup of temporary files and proper resource management
--   **Monitoring Ready**: Built-in metrics and health check endpoints for monitoring systems
-
-### 🎨 Layout Styles
-
--   **Masonry**: Pinterest-style layout with optimal space utilization
--   **Grid**: Uniform grid layout for organized appearance
+-   **📊 Production Ready**: Health checks and structured settings via environment
 
 ## Quick Start
 
-### Installation
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/kLaz3r/collage-api-test.git
-cd collage-api-test
-```
-
-2. Install dependencies:
+### 1) Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the server:
+### 2) Configure (optional)
+
+Create a `.env` file or export env vars (defaults shown):
+
+```bash
+# App
+APP_APP_NAME="Collage Maker API"
+APP_APP_VERSION="1.0.0"
+APP_HOST=0.0.0.0
+APP_PORT=8000
+
+# Paths
+APP_UPLOAD_DIR=uploads
+APP_OUTPUT_DIR=outputs
+APP_TEMP_DIR=temp
+
+# Limits
+APP_MAX_IMAGE_SIZE=10485760          # 10 MB
+APP_MAX_TOTAL_SIZE=524288000         # 500 MB
+APP_MAX_CANVAS_PIXELS=250000000
+
+# Rate limiting
+APP_RATE_LIMIT_REQUESTS=10
+APP_RATE_LIMIT_WINDOW_SECONDS=60
+
+# Redis (for jobs)
+APP_REDIS_URL=redis://localhost:6379/0   # or set APP_REDIS_HOST/PORT/DB
+APP_REDIS_HOST=localhost
+APP_REDIS_PORT=6379
+APP_REDIS_DB=0
+APP_JOB_TTL_SECONDS=3600
+APP_CLEANUP_INTERVAL_SECONDS=600
+
+# CORS
+APP_CORS_ALLOW_ORIGINS=["*"]
+APP_CORS_ALLOW_CREDENTIALS=true
+APP_CORS_ALLOW_METHODS=["*"]
+APP_CORS_ALLOW_HEADERS=["*"]
+```
+
+### 3) Run Redis and the worker
+
+```bash
+# Start Redis (example)
+docker run -p 6379:6379 redis:7
+
+# Start Celery worker
+./venv/bin/celery -A celery_app.celery_app worker -l info
+```
+
+### 4) Run the API
 
 ```bash
 python server.py
+# or
+./venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-The API will be available at `http://localhost:8000`
+API available at `http://localhost:8000`.
 
-### Basic Usage
+## Basic Usage
 
 ```bash
 # Create a collage with default settings
@@ -72,44 +92,33 @@ curl -X POST "http://localhost:8000/api/collage/create" \
   -F "files=@image2.jpg" \
   -F "files=@image3.jpg"
 
-# Response: {"job_id": "123e4567-e89b-12d3-a456-426614174000", "status": "pending"}
+# Response: {"job_id":"<uuid>","status":"pending"}
+
+# Check job status
+curl "http://localhost:8000/api/collage/status/<job_id>"
+
+# Download when completed
+curl -OJ "http://localhost:8000/api/collage/download/<job_id>"
 ```
 
 ## API Endpoints
 
-### Core Endpoints
-
--   `GET /` - API information and available endpoints
--   `POST /api/collage/create` - Create a new collage
--   `GET /api/collage/status/{job_id}` - Check job status
--   `GET /api/collage/download/{job_id}` - Download completed collage
--   `GET /api/collage/jobs` - List all jobs
--   `DELETE /api/collage/cleanup/{job_id}` - Clean up job files
-
-### Health Check
-
--   `GET /health` - Service health status
+-   `GET /` — API information
+-   `POST /api/collage/create` — Create a new collage
+-   `GET /api/collage/status/{job_id}` — Check job status
+-   `GET /api/collage/download/{job_id}` — Download completed collage
+-   `GET /api/collage/jobs` — List jobs
+-   `DELETE /api/collage/cleanup/{job_id}` — Cleanup job files
+-   `GET /health` — Health status
 
 ## Documentation
 
-### 📚 Complete Documentation Suite
+-   Interactive Docs: `http://localhost:8000/docs`
+-   ReDoc: `http://localhost:8000/redoc`
+-   OpenAPI JSON: `http://localhost:8000/openapi.json`
 
--   **[Interactive Documentation](./docs/index.html)** - Live API explorer with status monitoring
--   **[API Reference](./docs/api-reference.md)** - Complete endpoint reference with examples
--   **[Configuration Guide](./docs/configuration.md)** - Layout styles and customization options
--   **[Usage Examples](./docs/examples.md)** - Code samples in Python, JavaScript, PHP, and cURL
--   **[Developer Guide](./docs/developer-guide.md)** - Architecture and extension guide
--   **[Deployment Guide](./docs/deployment.md)** - Production deployment and scaling
--   **[Troubleshooting](./docs/troubleshooting.md)** - Common issues and solutions
-
-### 🚀 Interactive API Explorer
-
-When running the server, visit:
-
--   **Swagger UI**: `http://localhost:8000/docs` - Interactive API testing
--   **ReDoc**: `http://localhost:8000/redoc` - Clean documentation
--   **OpenAPI JSON**: `http://localhost:8000/openapi.json` - API specification
+For detailed guides, see `docs/`.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License - see `LICENSE`.

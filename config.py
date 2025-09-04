@@ -31,7 +31,7 @@ class AppSettings(BaseSettings):
     max_canvas_pixels: int = Field(default=250_000_000)
 
     # Rate limiting
-    rate_limit_requests: int = Field(default=10)
+    rate_limit_requests: int = Field(default=100)
     rate_limit_window_seconds: int = Field(default=60)
 
     # Redis
