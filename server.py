@@ -28,6 +28,7 @@ import numpy as np
 from config import AppSettings
 from redis.asyncio import Redis as AsyncRedis
 from celery_app import celery_app
+import aiofiles
 
 # Security imports
 try:
@@ -93,6 +94,7 @@ TEMP_DIR = settings.temp_dir
 MAX_IMAGE_SIZE = settings.max_image_size
 MAX_TOTAL_SIZE = settings.max_total_size
 MAX_CANVAS_PIXELS = settings.max_canvas_pixels
+STREAM_CHUNK_SIZE = 1024 * 1024  # 1MB per chunk
 
 # Create directories
 for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
@@ -966,22 +968,38 @@ async def create_collage(
         # Sanitize filename
         safe_filename = sanitize_filename(file.filename or "image.jpg")
 
-        # Read file
-        contents = await file.read()
-        total_size += len(contents)
-
-        # Check size limits
-        if len(contents) > MAX_IMAGE_SIZE:
-            logger.warning(f"File {safe_filename} exceeds size limit")
-            raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
-        if total_size > MAX_TOTAL_SIZE:
-            logger.warning("Total file size exceeds limit")
-            raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
-
-        # Save file temporarily
+        # Stream file to temp storage in chunks
         file_path = TEMP_DIR / f"{job_id}_{safe_filename}"
-        with open(file_path, 'wb') as f:
-            f.write(contents)
+        bytes_written = 0
+        async with aiofiles.open(file_path, 'wb') as out_f:
+            while True:
+                chunk = await file.read(STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                total_size += len(chunk)
+
+                # Per-file limit
+                if bytes_written > MAX_IMAGE_SIZE:
+                    await out_f.close()
+                    try:
+                        file_path.unlink()
+                    except Exception:
+                        pass
+                    logger.warning(f"File {safe_filename} exceeds size limit")
+                    raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
+
+                # Total limit
+                if total_size > MAX_TOTAL_SIZE:
+                    await out_f.close()
+                    try:
+                        file_path.unlink()
+                    except Exception:
+                        pass
+                    logger.warning("Total file size exceeds limit")
+                    raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
+
+                await out_f.write(chunk)
 
         # Validate file is actually an image
         if not validate_image_file(str(file_path)):
