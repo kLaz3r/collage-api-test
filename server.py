@@ -68,10 +68,14 @@ OUTPUT_DIR = Path("outputs")
 TEMP_DIR = Path("temp")
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB per image
 MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
+MAX_CANVAS_PIXELS = 250_000_000  # Safety limit for total canvas pixels
 
 # Create directories
 for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
     dir_path.mkdir(exist_ok=True)
+
+# Guard against decompression bombs for very large images
+Image.MAX_IMAGE_PIXELS = MAX_CANVAS_PIXELS
 
 # Store job status (in production, use Redis)
 job_status = {}
@@ -318,10 +322,13 @@ class GridPacker:
         """Pack images in a uniform grid"""
         blocks = []
         num_images = len(image_paths)
+        if num_images == 0:
+            return blocks
 
         # Calculate grid dimensions
-        cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
-        rows = int(np.ceil(num_images / cols))
+        computed_cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
+        cols = max(1, computed_cols)
+        rows = max(1, int(np.ceil(num_images / cols)))
 
         # Add edge spacing to all four sides
         edge_spacing = self.spacing_pixels
@@ -350,8 +357,9 @@ class GridPacker:
             dict: Contains optimal grid info and recommendations
         """
         # Calculate current grid dimensions
-        cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
-        rows = int(np.ceil(num_images / cols))
+        computed_cols = int(np.sqrt(num_images * (self.canvas_width / self.canvas_height)))
+        cols = max(1, computed_cols)
+        rows = max(1, int(np.ceil(num_images / cols)))
         
         # Calculate how many images would fit in a complete grid
         complete_grid_images = cols * rows
@@ -515,43 +523,7 @@ def sanitize_filename(filename: str) -> str:
     filename = filename[:100]
     return filename
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('app.log', mode='a')
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Initialize FastAPI app
-app = FastAPI(
-    title="Collage Maker API",
-    description="Create beautiful photo collages with masonry layout",
-    version="1.0.0"
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Configuration
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("outputs")
-TEMP_DIR = Path("temp")
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB per image
-MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
-
-# Create directories
-for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
-    dir_path.mkdir(exist_ok=True)
+ 
 
 
 
@@ -567,12 +539,20 @@ class CollageGenerator:
         # Convert mm to pixels: 1 inch = 25.4 mm, so mm / 25.4 = inches, then * dpi = pixels
         self.canvas_width = int((config.width_mm / 25.4) * config.dpi)
         self.canvas_height = int((config.height_mm / 25.4) * config.dpi)
+        # Enforce safe canvas bounds
+        if self.canvas_width * self.canvas_height > MAX_CANVAS_PIXELS:
+            raise ValueError(
+                f"Canvas too large: {self.canvas_width*self.canvas_height} pixels exceeds limit {MAX_CANVAS_PIXELS}"
+            )
     
     def generate(self, image_blocks: List[ImageBlock], output_path: str) -> str:
         """Generate the final collage image"""
-        # Create canvas
-        bg_color = self._parse_color(self.config.background_color)
-        canvas = Image.new('RGB', (self.canvas_width, self.canvas_height), bg_color)
+        # Create canvas (support RGBA when background has alpha)
+        r, g, b, a = self._parse_color_rgba(self.config.background_color)
+        if a < 255:
+            canvas = Image.new('RGBA', (self.canvas_width, self.canvas_height), (r, g, b, a))
+        else:
+            canvas = Image.new('RGB', (self.canvas_width, self.canvas_height), (r, g, b))
         
         # Process each image block
         for block in image_blocks:
@@ -600,17 +580,12 @@ class CollageGenerator:
         
         # Save the final image in the specified format
         if self.config.output_format == OutputFormat.JPEG:
+            # JPEG does not support alpha
+            if canvas.mode == 'RGBA':
+                canvas = canvas.convert('RGB')
             canvas.save(output_path, 'JPEG', quality=95, dpi=(self.config.dpi, self.config.dpi))
         elif self.config.output_format == OutputFormat.PNG:
-            # Convert to RGBA for PNG to support transparency if needed
-            if self.config.background_color == "#00000000":  # Transparent background
-                canvas = canvas.convert('RGBA')
-                # Make background transparent
-                data = np.array(canvas)
-                # Find white pixels and make them transparent
-                white_pixels = np.all(data[:, :, :3] == [255, 255, 255], axis=2)
-                data[white_pixels, 3] = 0
-                canvas = Image.fromarray(data)
+            # Save as-is; if alpha present, canvas is already RGBA
             canvas.save(output_path, 'PNG', dpi=(self.config.dpi, self.config.dpi))
         elif self.config.output_format == OutputFormat.TIFF:
             canvas.save(output_path, 'TIFF', dpi=(self.config.dpi, self.config.dpi), compression='tiff_lzw')
@@ -716,6 +691,23 @@ class CollageGenerator:
             color_str = color_str[1:]
             return tuple(int(color_str[i:i+2], 16) for i in (0, 2, 4))
         return (255, 255, 255)  # Default white
+
+    def _parse_color_rgba(self, color_str: str) -> Tuple[int, int, int, int]:
+        """Parse #RRGGBB or #RRGGBBAA to RGBA tuple."""
+        if isinstance(color_str, str) and color_str.startswith('#'):
+            hex_str = color_str[1:]
+            if len(hex_str) == 8:
+                r = int(hex_str[0:2], 16)
+                g = int(hex_str[2:4], 16)
+                b = int(hex_str[4:6], 16)
+                a = int(hex_str[6:8], 16)
+                return (r, g, b, a)
+            elif len(hex_str) == 6:
+                r = int(hex_str[0:2], 16)
+                g = int(hex_str[2:4], 16)
+                b = int(hex_str[4:6], 16)
+                return (r, g, b, 255)
+        return (255, 255, 255, 255)
 
 async def process_collage(job_id: str, image_paths: List[str], config: CollageConfig):
     """Background task to process collage generation"""
@@ -860,18 +852,18 @@ async def create_collage(
 
         image_paths.append(str(file_path))
 
-            # Create config
-        config = CollageConfig(
-            width_mm=width_mm,
-            height_mm=height_mm,
-            dpi=dpi,
-            layout_style=layout_style,
-            spacing=spacing,
-            background_color=background_color,
-            maintain_aspect_ratio=maintain_aspect_ratio,
-            apply_shadow=apply_shadow,
-            output_format=output_format
-        )
+    # Create config once after files are processed
+    config = CollageConfig(
+        width_mm=width_mm,
+        height_mm=height_mm,
+        dpi=dpi,
+        layout_style=layout_style,
+        spacing=spacing,
+        background_color=background_color,
+        maintain_aspect_ratio=maintain_aspect_ratio,
+        apply_shadow=apply_shadow,
+        output_format=output_format
+    )
 
     logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
 
