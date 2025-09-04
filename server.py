@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
+from config import AppSettings
 
 # Security imports
 try:
@@ -46,29 +47,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Load settings
+settings = AppSettings()
+
 # Initialize FastAPI app
 app = FastAPI(
-    title="Collage Maker API",
+    title=settings.app_name,
     description="Create beautiful photo collages with masonry layout",
-    version="1.0.0"
+    version=settings.app_version
 )
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_allow_methods,
+    allow_headers=settings.cors_allow_headers,
 )
 
 # Configuration
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("outputs")
-TEMP_DIR = Path("temp")
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB per image
-MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
-MAX_CANVAS_PIXELS = 250_000_000  # Safety limit for total canvas pixels
+UPLOAD_DIR = settings.upload_dir
+OUTPUT_DIR = settings.output_dir
+TEMP_DIR = settings.temp_dir
+MAX_IMAGE_SIZE = settings.max_image_size
+MAX_TOTAL_SIZE = settings.max_total_size
+MAX_CANVAS_PIXELS = settings.max_canvas_pixels
 
 # Create directories
 for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
@@ -469,8 +473,8 @@ class GridPacker:
 
 # Rate limiting (simple in-memory implementation)
 rate_limit_store = defaultdict(list)
-RATE_LIMIT_REQUESTS = 100  # requests per window
-RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_REQUESTS = settings.rate_limit_requests  # requests per window
+RATE_LIMIT_WINDOW = settings.rate_limit_window_seconds  # seconds
 
 def check_rate_limit(client_ip: str) -> bool:
     """Simple rate limiting check"""
@@ -768,8 +772,8 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
 async def root():
     """Root endpoint with API information"""
     return {
-        "name": "Collage Maker API",
-        "version": "1.0.0",
+        "name": settings.app_name,
+        "version": settings.app_version,
         "endpoints": {
             "create_collage": "/api/collage/create",
             "get_status": "/api/collage/status/{job_id}",
@@ -1141,7 +1145,7 @@ async def health_check():
         health_status = {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "version": "1.0.0",
+            "version": settings.app_version,
             "checks": {
                 "filesystem": {
                     "temp_dir": str(TEMP_DIR),
