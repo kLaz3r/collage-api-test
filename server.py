@@ -986,18 +986,18 @@ async def create_collage(
                         file_path.unlink()
                     except Exception:
                         pass
-                    logger.warning(f"File {safe_filename} exceeds size limit")
-                    raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
+            logger.warning(f"File {safe_filename} exceeds size limit")
+            raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
 
                 # Total limit
-                if total_size > MAX_TOTAL_SIZE:
+        if total_size > MAX_TOTAL_SIZE:
                     await out_f.close()
                     try:
                         file_path.unlink()
                     except Exception:
                         pass
-                    logger.warning("Total file size exceeds limit")
-                    raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
+            logger.warning("Total file size exceeds limit")
+            raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
 
                 await out_f.write(chunk)
 
@@ -1010,17 +1010,17 @@ async def create_collage(
         image_paths.append(str(file_path))
 
     # Create config once after files are processed
-    config = CollageConfig(
-        width_mm=width_mm,
-        height_mm=height_mm,
-        dpi=dpi,
-        layout_style=layout_style,
-        spacing=spacing,
-        background_color=background_color,
-        maintain_aspect_ratio=maintain_aspect_ratio,
-        apply_shadow=apply_shadow,
-        output_format=output_format
-    )
+        config = CollageConfig(
+            width_mm=width_mm,
+            height_mm=height_mm,
+            dpi=dpi,
+            layout_style=layout_style,
+            spacing=spacing,
+            background_color=background_color,
+            maintain_aspect_ratio=maintain_aspect_ratio,
+            apply_shadow=apply_shadow,
+            output_format=output_format
+        )
 
     logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
 
@@ -1266,34 +1266,68 @@ async def analyze_masonry_layout(
         logger.error(f"Masonry analysis failed: {e}")
         raise HTTPException(status_code=500, detail=f"Masonry analysis failed: {str(e)}")
 
-# Request logging middleware
+def _log_json(event: str, **kwargs):
+    try:
+        record = {"event": event, **kwargs}
+        logger.info(json.dumps(record, default=str))
+    except Exception:
+        # Fallback to plain logging if JSON serialization fails
+        logger.info(f"{event} | {kwargs}")
+
+
+# Request logging + Request ID middleware
 @app.middleware("http")
 async def log_requests(request, call_next):
-    # Get client IP for rate limiting
+    # Correlation/Request ID
+    req_id = request.headers.get("X-Request-ID") or request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    request.state.request_id = req_id
+
+    # Client IP for rate limiting
     client_ip = request.client.host if request.client else "unknown"
 
-    # Check rate limit
+    # Rate limit check
     if not check_rate_limit(client_ip):
-        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        _log_json(
+            "rate_limit_exceeded",
+            request_id=req_id,
+            method=request.method,
+            path=request.url.path,
+            client_ip=client_ip,
+        )
         return JSONResponse(
             status_code=429,
-            content={"error": "Rate limit exceeded. Please try again later."}
+            content={"error": "Rate limit exceeded. Please try again later.", "request_id": req_id}
         )
 
     start_time = datetime.now()
-    response = await call_next(request)
-    process_time = (datetime.now() - start_time).total_seconds() * 1000
-
-    logger.info(
-        f"{request.method} {request.url.path} - {response.status_code} - {process_time:.2f}ms - IP: {client_ip}"
+    _log_json(
+        "request_start",
+        request_id=req_id,
+        method=request.method,
+        path=request.url.path,
+        client_ip=client_ip,
     )
 
-    # Add security headers
+    response = await call_next(request)
+    process_time_ms = (datetime.now() - start_time).total_seconds() * 1000
+
+    # Add response headers
+    response.headers["X-Request-ID"] = req_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' https://fastapi.tiangolo.com"
+
+    _log_json(
+        "request_end",
+        request_id=req_id,
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=round(process_time_ms, 2),
+        client_ip=client_ip,
+    )
 
     return response
 
