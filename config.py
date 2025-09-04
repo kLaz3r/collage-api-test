@@ -34,6 +34,14 @@ class AppSettings(BaseSettings):
     rate_limit_requests: int = Field(default=10)
     rate_limit_window_seconds: int = Field(default=60)
 
+    # Redis
+    redis_url: str | None = Field(default=None)
+    redis_host: str = Field(default="192.168.3.2")
+    redis_port: int = Field(default=6379)
+    redis_db: int = Field(default=0)
+    job_ttl_seconds: int = Field(default=24 * 60 * 60)  # 24h
+    cleanup_interval_seconds: int = Field(default=600)  # 10 minutes
+
     # CORS
     cors_allow_origins: List[str] = Field(default_factory=lambda: ["*"])
     cors_allow_credentials: bool = Field(default=True)

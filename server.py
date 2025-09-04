@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, validator
 from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 from config import AppSettings
+from redis.asyncio import Redis as AsyncRedis
 
 # Security imports
 try:
@@ -57,6 +58,24 @@ app = FastAPI(
     version=settings.app_version
 )
 
+# Startup/Shutdown events: init redis and start cleanup loop
+@app.on_event("startup")
+async def on_startup():
+    global redis_client
+    # Initialize Redis client
+    if settings.redis_url:
+        redis_client = AsyncRedis.from_url(settings.redis_url, decode_responses=True)
+    else:
+        redis_client = AsyncRedis(host=settings.redis_host, port=settings.redis_port, db=settings.redis_db, decode_responses=True)
+    # Fire-and-forget cleanup loop
+    asyncio.create_task(_cleanup_loop())
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    global redis_client
+    if redis_client is not None:
+        await redis_client.close()
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -81,8 +100,124 @@ for dir_path in [UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR]:
 # Guard against decompression bombs for very large images
 Image.MAX_IMAGE_PIXELS = MAX_CANVAS_PIXELS
 
-# Store job status (in production, use Redis)
-job_status = {}
+# Redis client (initialized on startup)
+redis_client: AsyncRedis | None = None
+
+# Job key helpers
+def _job_key(job_id: str) -> str:
+    return f"job:{job_id}"
+
+async def _get_redis() -> AsyncRedis:
+    global redis_client
+    if redis_client is None:
+        # Lazy init if startup not called (e.g., tests)
+        if settings.redis_url:
+            redis_client = AsyncRedis.from_url(settings.redis_url, decode_responses=True)
+        else:
+            redis_client = AsyncRedis(host=settings.redis_host, port=settings.redis_port, db=settings.redis_db, decode_responses=True)
+    return redis_client
+
+async def save_job(job: 'CollageJob') -> None:
+    client = await _get_redis()
+    payload = {
+        'job_id': job.job_id,
+        'status': job.status.value if isinstance(job.status, JobStatus) else job.status,
+        'created_at': job.created_at.isoformat() if isinstance(job.created_at, datetime) else str(job.created_at),
+        'completed_at': job.completed_at.isoformat() if job.completed_at else None,
+        'output_file': job.output_file,
+        'error_message': job.error_message,
+        'progress': job.progress,
+    }
+    await client.set(_job_key(job.job_id), json.dumps(payload), ex=settings.job_ttl_seconds)
+
+async def update_job(job_id: str, updates: Dict) -> None:
+    client = await _get_redis()
+    existing = await client.get(_job_key(job_id))
+    if existing:
+        data = json.loads(existing)
+    else:
+        data = {'job_id': job_id, 'status': JobStatus.PENDING.value, 'created_at': datetime.now().isoformat(), 'progress': 0}
+    # Coerce enum values to strings if provided
+    if 'status' in updates and isinstance(updates['status'], JobStatus):
+        updates = {**updates, 'status': updates['status'].value}
+    data.update(updates)
+    await client.set(_job_key(job_id), json.dumps(data), ex=settings.job_ttl_seconds)
+
+async def get_job(job_id: str) -> Optional[Dict]:
+    client = await _get_redis()
+    raw = await client.get(_job_key(job_id))
+    return json.loads(raw) if raw else None
+
+async def delete_job(job_id: str) -> None:
+    client = await _get_redis()
+    await client.delete(_job_key(job_id))
+
+async def list_all_jobs() -> List[Dict]:
+    client = await _get_redis()
+    cursor = 0
+    keys: List[str] = []
+    while True:
+        cursor, batch = await client.scan(cursor=cursor, match='job:*', count=200)
+        keys.extend(batch)
+        if cursor == 0:
+            break
+    if not keys:
+        return []
+    values = await client.mget(keys)
+    return [json.loads(v) for v in values if v]
+
+async def count_total_jobs() -> int:
+    client = await _get_redis()
+    cursor = 0
+    total = 0
+    while True:
+        cursor, batch = await client.scan(cursor=cursor, match='job:*', count=500)
+        total += len(batch)
+        if cursor == 0:
+            break
+    return total
+
+async def count_active_jobs() -> int:
+    jobs = await list_all_jobs()
+    return sum(1 for j in jobs if j.get('status') in [JobStatus.PENDING.value, JobStatus.PROCESSING.value])
+
+async def is_redis_connected() -> bool:
+    try:
+        client = await _get_redis()
+        pong = await client.ping()
+        return bool(pong)
+    except Exception:
+        return False
+
+async def cleanup_stale_files() -> None:
+    """Delete files for jobs that no longer exist in Redis (expired/cleaned)."""
+    client = await _get_redis()
+    # Cleanup temp files: pattern {job_id}_filename
+    for file in TEMP_DIR.glob('*_*'):
+        try:
+            job_id = file.name.split('_', 1)[0]
+            exists = await client.exists(_job_key(job_id))
+            if not exists:
+                file.unlink()
+        except Exception:
+            continue
+    # Cleanup outputs: pattern collage_{job_id}.ext
+    for file in OUTPUT_DIR.glob('collage_*'):
+        try:
+            stem = file.stem  # e.g., collage_<jobid>
+            if not stem.startswith('collage_'):
+                continue
+            job_id = stem.split('collage_', 1)[1]
+            exists = await client.exists(_job_key(job_id))
+            if not exists:
+                file.unlink()
+        except Exception:
+            continue
+
+async def _cleanup_loop():
+    while True:
+        await asyncio.sleep(settings.cleanup_interval_seconds)
+        await cleanup_stale_files()
 
 # Enums
 class LayoutStyle(str, Enum):
@@ -716,9 +851,8 @@ class CollageGenerator:
 async def process_collage(job_id: str, image_paths: List[str], config: CollageConfig):
     """Background task to process collage generation"""
     try:
-        # Update status
-        job_status[job_id]['status'] = JobStatus.PROCESSING
-        job_status[job_id]['progress'] = 10
+        # Update status in Redis
+        await update_job(job_id, {"status": JobStatus.PROCESSING.value, "progress": 10})
         
         # Initialize generator
         generator = CollageGenerator(config)
@@ -747,7 +881,7 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
             )
             blocks = packer.pack_images(image_paths, config.maintain_aspect_ratio)
         
-        job_status[job_id]['progress'] = 50
+        await update_job(job_id, {"progress": 50})
         
         # Generate collage
         file_extension = config.output_format.value
@@ -756,15 +890,15 @@ async def process_collage(job_id: str, image_paths: List[str], config: CollageCo
         generator.generate(blocks, str(output_path))
 
         # Update job status
-        job_status[job_id]['status'] = JobStatus.COMPLETED
-        job_status[job_id]['completed_at'] = datetime.now()
-        job_status[job_id]['output_file'] = output_filename
-        job_status[job_id]['progress'] = 100
+        await update_job(job_id, {
+            "status": JobStatus.COMPLETED.value,
+            "completed_at": datetime.now().isoformat(),
+            "output_file": output_filename,
+            "progress": 100,
+        })
         
     except Exception as e:
-        job_status[job_id]['status'] = JobStatus.FAILED
-        job_status[job_id]['error_message'] = str(e)
-        job_status[job_id]['progress'] = 0
+        await update_job(job_id, {"status": JobStatus.FAILED.value, "error_message": str(e), "progress": 0})
 
 # API Endpoints
 
@@ -821,7 +955,7 @@ async def create_collage(
         created_at=datetime.now(),
         progress=0
     )
-    job_status[job_id] = job.dict()
+    await save_job(job)
 
     # Save uploaded files
     image_paths = []
@@ -879,20 +1013,20 @@ async def create_collage(
 @app.get("/api/collage/status/{job_id}")
 async def get_status(job_id: str):
     """Get the status of a collage generation job"""
-    if job_id not in job_status:
+    job = await get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    return job_status[job_id]
+    return job
 
 @app.get("/api/collage/download/{job_id}")
 async def download_collage(job_id: str):
     """Download the generated collage"""
-    if job_id not in job_status:
+    job = await get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    job = job_status[job_id]
-    
-    if job['status'] != JobStatus.COMPLETED:
+    if job.get('status') != JobStatus.COMPLETED.value:
         raise HTTPException(status_code=400, detail="Collage not ready yet")
     
     file_path = OUTPUT_DIR / job['output_file']
@@ -920,12 +1054,13 @@ async def download_collage(job_id: str):
 @app.get("/api/collage/jobs")
 async def list_jobs():
     """List all collage generation jobs"""
-    return list(job_status.values())
+    return await list_all_jobs()
 
 @app.delete("/api/collage/cleanup/{job_id}")
 async def cleanup_job(job_id: str):
     """Clean up temporary files for a job"""
-    if job_id not in job_status:
+    job = await get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
     # Clean up temp files
@@ -933,13 +1068,13 @@ async def cleanup_job(job_id: str):
         file.unlink()
     
     # Clean up output file if exists
-    if job_status[job_id].get('output_file'):
-        output_file = OUTPUT_DIR / job_status[job_id]['output_file']
+    if job.get('output_file'):
+        output_file = OUTPUT_DIR / job['output_file']
         if output_file.exists():
             output_file.unlink()
     
-    # Remove from job status
-    del job_status[job_id]
+    # Remove from Redis
+    await delete_job(job_id)
     
     return {"message": "Job cleaned up successfully"}
 
@@ -1138,9 +1273,8 @@ async def health_check():
         temp_space = shutil.disk_usage(TEMP_DIR)
         output_space = shutil.disk_usage(OUTPUT_DIR)
 
-        # Check active jobs
-        active_jobs = sum(1 for job in job_status.values()
-                         if job['status'] in [JobStatus.PENDING, JobStatus.PROCESSING])
+        # Check active jobs (from Redis)
+        active_jobs = await count_active_jobs()
 
         health_status = {
             "status": "healthy",
@@ -1155,12 +1289,13 @@ async def health_check():
                     "healthy": temp_space.free > 1024**3 and output_space.free > 1024**3  # 1GB free
                 },
                 "jobs": {
-                    "total_jobs": len(job_status),
+                    "total_jobs": await count_total_jobs(),
                     "active_jobs": active_jobs,
                     "healthy": active_jobs < 50  # Reasonable limit
                 },
                 "dependencies": {
                     "magic_available": MAGIC_AVAILABLE,
+                    "redis_connected": await is_redis_connected(),
                     "healthy": True
                 }
             }
@@ -1188,4 +1323,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=settings.host, port=settings.port)
