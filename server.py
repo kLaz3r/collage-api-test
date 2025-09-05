@@ -280,6 +280,23 @@ class CollageConfig(BaseModel):
             raise ValueError('Invalid hex color format - must be #RRGGBB or #RRGGBBAA (with alpha)')
         return v
 
+class CollagePixelConfig(BaseModel):
+    width_px: int = Field(default=1920, ge=320, le=20000)
+    height_px: int = Field(default=1080, ge=320, le=20000)
+    dpi: int = Field(default=96, ge=72, le=300)
+    layout_style: LayoutStyle = LayoutStyle.MASONRY
+    spacing: float = Field(default=40.0, ge=0.0, le=100.0)
+    background_color: str = Field(default="#FFFFFF")
+    maintain_aspect_ratio: bool = True
+    apply_shadow: bool = False
+    output_format: OutputFormat = OutputFormat.JPEG
+
+    @validator('background_color')
+    def validate_color(cls, v):
+        if not re.match(r'^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$', v):
+            raise ValueError('Invalid hex color format - must be #RRGGBB or #RRGGBBAA (with alpha)')
+        return v
+
 class CollageJob(BaseModel):
     job_id: str
     status: JobStatus
@@ -897,6 +914,18 @@ class CollageGenerator:
                 return (r, g, b, 255)
         return (255, 255, 255, 255)
 
+class CollageGeneratorPixels(CollageGenerator):
+    """Generator variant that accepts pixel-based dimensions directly."""
+
+    def __init__(self, config: CollagePixelConfig):
+        self.config = config
+        self.canvas_width = int(config.width_px)
+        self.canvas_height = int(config.height_px)
+        if self.canvas_width * self.canvas_height > MAX_CANVAS_PIXELS:
+            raise ValueError(
+                f"Canvas too large: {self.canvas_width*self.canvas_height} pixels exceeds limit {MAX_CANVAS_PIXELS}"
+            )
+
 async def process_collage(job_id: str, image_paths: List[str], config: CollageConfig):
     """Background task to process collage generation"""
     try:
@@ -959,6 +988,7 @@ async def root():
         "version": settings.app_version,
         "endpoints": {
             "create_collage": "/api/collage/create",
+            "create_collage_pixels": "/api/collage/create-pixels",
             "get_status": "/api/collage/status/{job_id}",
             "download": "/api/collage/download/{job_id}",
             "list_jobs": "/api/collage/jobs"
@@ -1115,6 +1145,143 @@ async def create_collage(
     }
     celery_app.send_task(
         "tasks.generate_collage_task",
+        args=[job_id, image_paths, config_payload],
+    )
+
+    return CreateCollageResponse(job_id=job_id, status="pending", message="Collage generation started")
+
+@app.post("/api/collage/create-pixels", response_model=CreateCollageResponse)
+async def create_collage_pixels(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    width_px: int = Form(default=1920, ge=320, le=20000),
+    height_px: int = Form(default=1080, ge=320, le=20000),
+    dpi: int = Form(default=96, ge=72, le=300),
+    layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
+    spacing: float = Form(default=40.0, ge=0.0, le=100.0),
+    background_color: str = Form(default="#FFFFFF"),
+    maintain_aspect_ratio: bool = Form(default=True),
+    apply_shadow: bool = Form(default=False),
+    output_format: OutputFormat = Form(default=OutputFormat.JPEG)
+):
+    """Create a new collage from uploaded images using pixel dimensions."""
+
+    file_details = ", ".join([f"{f.filename} ({f.size if hasattr(f, 'size') else 'unknown size'})" for f in files if f.filename])
+    logger.info(f"Incoming pixel-based request: {len(files)} files - Parameters: width={width_px}px, height={height_px}px, dpi={dpi}, layout={layout_style.value}, spacing={spacing}% (scaled), bg_color={background_color}, maintain_ratio={maintain_aspect_ratio}, shadow={apply_shadow}, format={output_format.value}")
+    logger.info(f"Files details: {file_details}")
+
+    if len(files) < 2:
+        logger.warning("Collage creation (pixels) failed: insufficient files")
+        raise HTTPException(status_code=400, detail="At least 2 images required")
+    if len(files) > 200:
+        logger.warning("Collage creation (pixels) failed: too many files")
+        raise HTTPException(status_code=400, detail="Maximum 200 images allowed")
+
+    job_id = str(uuid.uuid4())
+    job = CollageJob(
+        job_id=job_id,
+        status=JobStatus.PENDING,
+        created_at=datetime.now(),
+        progress=0
+    )
+    await save_job(job)
+
+    image_paths = []
+    total_size = 0
+
+    for file in files:
+        safe_filename = sanitize_filename(file.filename or "image.jpg")
+
+        file_path = TEMP_DIR / f"{job_id}_{safe_filename}"
+        bytes_written = 0
+        async with aiofiles.open(file_path, 'wb') as out_f:
+            while True:
+                chunk = await file.read(STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                total_size += len(chunk)
+
+                if bytes_written > MAX_IMAGE_SIZE:
+                    await out_f.close()
+                    try:
+                        file_path.unlink()
+                    except Exception:
+                        pass
+                    logger.warning(f"File {safe_filename} exceeds size limit")
+                    raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
+
+                if total_size > MAX_TOTAL_SIZE:
+                    await out_f.close()
+                    try:
+                        file_path.unlink()
+                    except Exception:
+                        pass
+                    logger.warning("Total file size exceeds limit")
+                    raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
+
+                await out_f.write(chunk)
+
+        if not validate_image_file(str(file_path)):
+            file_path.unlink()
+            logger.warning(f"Invalid image file: {safe_filename}")
+            raise HTTPException(status_code=400, detail=f"File {safe_filename} is not a valid image")
+
+        try:
+            with Image.open(file_path) as im:
+                src_w, src_h = im.width, im.height
+                if settings.preflight_enabled:
+                    if 'preflight_total_pixels' not in locals():
+                        preflight_total_pixels = 0
+                    preflight_total_pixels += (src_w * src_h)
+                    total_pixels = preflight_total_pixels
+                    if total_pixels > settings.preflight_max_total_source_pixels:
+                        logger.warning("Preflight pixel budget exceeded")
+                        raise HTTPException(status_code=400, detail="Total image pixels too large; reduce image sizes or count")
+
+                if settings.pre_resize_enabled and max(src_w, src_h) > settings.pre_resize_max_dim:
+                    scale = settings.pre_resize_max_dim / float(max(src_w, src_h))
+                    new_w = max(1, int(src_w * scale))
+                    new_h = max(1, int(src_h * scale))
+                    im = ImageOps.exif_transpose(im)
+                    im = im.convert('RGB') if im.mode != 'RGB' else im
+                    im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    im.save(file_path, format='JPEG', quality=92)
+        except HTTPException:
+            raise
+        except Exception:
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=f"Failed to process {safe_filename}")
+
+        image_paths.append(str(file_path))
+
+    config = CollagePixelConfig(
+        width_px=width_px,
+        height_px=height_px,
+        dpi=dpi,
+        layout_style=layout_style,
+        spacing=spacing,
+        background_color=background_color,
+        maintain_aspect_ratio=maintain_aspect_ratio,
+        apply_shadow=apply_shadow,
+        output_format=output_format
+    )
+
+    logger.info(f"Collage job {job_id} (pixels) created with {len(image_paths)} images")
+
+    config_payload = {
+        "width_px": config.width_px,
+        "height_px": config.height_px,
+        "dpi": config.dpi,
+        "layout_style": config.layout_style.value,
+        "spacing": config.spacing,
+        "background_color": config.background_color,
+        "maintain_aspect_ratio": config.maintain_aspect_ratio,
+        "apply_shadow": config.apply_shadow,
+        "output_format": config.output_format.value,
+    }
+    celery_app.send_task(
+        "tasks.generate_collage_pixels_task",
         args=[job_id, image_paths, config_payload],
     )
 
