@@ -986,18 +986,18 @@ async def create_collage(
                         file_path.unlink()
                     except Exception:
                         pass
-            logger.warning(f"File {safe_filename} exceeds size limit")
-            raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
+                    logger.warning(f"File {safe_filename} exceeds size limit")
+                    raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
 
                 # Total limit
-        if total_size > MAX_TOTAL_SIZE:
+                if total_size > MAX_TOTAL_SIZE:
                     await out_f.close()
                     try:
                         file_path.unlink()
                     except Exception:
                         pass
-            logger.warning("Total file size exceeds limit")
-            raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
+                    logger.warning("Total file size exceeds limit")
+                    raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
 
                 await out_f.write(chunk)
 
@@ -1010,7 +1010,7 @@ async def create_collage(
         image_paths.append(str(file_path))
 
     # Create config once after files are processed
-        config = CollageConfig(
+    config = CollageConfig(
             width_mm=width_mm,
             height_mm=height_mm,
             dpi=dpi,
