@@ -105,6 +105,26 @@ services:
 
 Systemd: run Celery worker as a separate unit alongside the API service.
 
+#### Celery Worker Systemd Unit (concise)
+
+```ini
+# /etc/systemd/system/collage-worker.service
+[Unit]
+Description=Collage Celery Worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/collage-api
+Environment=PATH=/path/to/venv/bin
+ExecStart=/path/to/venv/bin/celery -A celery_app.celery_app worker -l info
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ### Environment-based settings (pydantic-settings)
 
 Settings are loaded from environment variables with the `APP_` prefix. Example `.env`:
@@ -201,11 +221,22 @@ services:
 # Build the image
 docker build -t collage-api .
 
-# Run with Docker Compose
+# Run with Docker Compose (API + worker + Redis)
 docker-compose up -d
 
-# Or run directly
-docker run -p 8000:8000 -v $(pwd)/outputs:/app/outputs collage-api
+# Or run directly (minimal example)
+# Start Redis
+docker run -d --name redis -p 6379:6379 redis:7
+
+# Start API
+docker run -d --name api --env-file .env \
+  -p 8000:8000 -v $(pwd)/outputs:/app/outputs -v $(pwd)/uploads:/app/uploads \
+  --link redis:redis collage-api
+
+# Start Celery worker
+docker run -d --name worker --env-file .env \
+  --link redis:redis collage-api \
+  celery -A celery_app.celery_app worker -l info
 ```
 
 ### Option 2: Systemd Service
