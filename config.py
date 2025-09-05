@@ -43,8 +43,8 @@ class AppSettings(BaseSettings):
     cleanup_interval_seconds: int = Field(default=600)  # 10 minutes
 
     # CORS
-    cors_allow_origins: List[str] = Field(default_factory=lambda: ["*"])
-    cors_allow_credentials: bool = Field(default=True)
+    cors_allow_origins: List[str] = Field(default_factory=list)
+    cors_allow_credentials: bool = Field(default=False)
     cors_allow_methods: List[str] = Field(default_factory=lambda: ["*"])
     cors_allow_headers: List[str] = Field(default_factory=lambda: ["*"])
 

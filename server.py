@@ -95,7 +95,7 @@ async def on_shutdown():
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allow_origins,
+    allow_origins=settings.cors_allow_origins or ["http://localhost", "http://localhost:3000"],
     allow_credentials=settings.cors_allow_credentials,
     allow_methods=settings.cors_allow_methods,
     allow_headers=settings.cors_allow_headers,
@@ -1330,9 +1330,12 @@ async def log_requests(request, call_next):
     response.headers["X-Request-ID"] = req_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
+    # Modern headers
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' https://fastapi.tiangolo.com"
+    # Minimal, self-only CSP by default (adjust if serving UI/assets)
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
 
     _log_json(
         "request_end",
