@@ -5,6 +5,7 @@ A web API for creating high-resolution photo collages with masonry layout
 
 import io
 import os
+import hashlib
 import uuid
 import json
 import random
@@ -14,7 +15,7 @@ import tempfile
 import shutil
 import logging
 import time
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Literal
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -279,6 +280,24 @@ class CollageJob(BaseModel):
     output_file: Optional[str] = None
     error_message: Optional[str] = None
     progress: int = Field(default=0, ge=0, le=100)
+
+# Public response models
+class CreateCollageResponse(BaseModel):
+    job_id: str
+    status: Literal["pending", "processing", "completed", "failed"]
+    message: str
+
+class CollageJobPublic(BaseModel):
+    job_id: str
+    status: JobStatus
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    output_file: Optional[str] = None
+    error_message: Optional[str] = None
+    progress: int
+
+class CleanupResponse(BaseModel):
+    message: str
 
 class ImageBlock:
     """Represents a single image block in the collage"""
@@ -938,7 +957,7 @@ async def root():
         }
     }
 
-@app.post("/api/collage/create")
+@app.post("/api/collage/create", response_model=CreateCollageResponse)
 async def create_collage(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
@@ -1060,16 +1079,25 @@ async def create_collage(
         args=[job_id, image_paths, config_payload],
     )
 
-    return {"job_id": job_id, "status": "pending", "message": "Collage generation started"}
+    return CreateCollageResponse(job_id=job_id, status="pending", message="Collage generation started")
 
-@app.get("/api/collage/status/{job_id}")
+@app.get("/api/collage/status/{job_id}", response_model=CollageJobPublic)
 async def get_status(job_id: str):
     """Get the status of a collage generation job"""
     job = await get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    return job
+    # Coerce to model (enums as strings handled by Pydantic)
+    return CollageJobPublic(
+        job_id=job.get('job_id'),
+        status=JobStatus(job.get('status')) if isinstance(job.get('status'), str) else job.get('status'),
+        created_at=datetime.fromisoformat(job.get('created_at')) if isinstance(job.get('created_at'), str) else job.get('created_at'),
+        completed_at=datetime.fromisoformat(job.get('completed_at')) if isinstance(job.get('completed_at'), str) and job.get('completed_at') else job.get('completed_at'),
+        output_file=job.get('output_file'),
+        error_message=job.get('error_message'),
+        progress=int(job.get('progress') or 0),
+    )
 
 @app.get("/api/collage/download/{job_id}")
 async def download_collage(job_id: str):
@@ -1095,20 +1123,44 @@ async def download_collage(job_id: str):
     else:
         media_type = 'image/jpeg'
     
-    return FileResponse(
+    # Add download headers: Content-Disposition, ETag, Cache-Control
+    # Compute a weak ETag based on file mtime and size
+    stat = file_path.stat()
+    etag_src = f"{stat.st_mtime_ns}-{stat.st_size}".encode()
+    etag = hashlib.md5(etag_src).hexdigest()  # nosec - not for security, only caching tag
+
+    resp = FileResponse(
         path=file_path,
         media_type=media_type,
         filename=job['output_file']
     )
+    resp.headers['Content-Disposition'] = f"attachment; filename=\"{job['output_file']}\""
+    resp.headers['ETag'] = f"W/\"{etag}\""
+    resp.headers['Cache-Control'] = 'private, max-age=31536000, immutable'
+    return resp
 
 
 
-@app.get("/api/collage/jobs")
+@app.get("/api/collage/jobs", response_model=List[CollageJobPublic])
 async def list_jobs():
     """List all collage generation jobs"""
-    return await list_all_jobs()
+    jobs = await list_all_jobs()
+    results: List[CollageJobPublic] = []
+    for job in jobs:
+        results.append(
+            CollageJobPublic(
+                job_id=job.get('job_id'),
+                status=JobStatus(job.get('status')) if isinstance(job.get('status'), str) else job.get('status'),
+                created_at=datetime.fromisoformat(job.get('created_at')) if isinstance(job.get('created_at'), str) else job.get('created_at'),
+                completed_at=datetime.fromisoformat(job.get('completed_at')) if isinstance(job.get('completed_at'), str) and job.get('completed_at') else job.get('completed_at'),
+                output_file=job.get('output_file'),
+                error_message=job.get('error_message'),
+                progress=int(job.get('progress') or 0),
+            )
+        )
+    return results
 
-@app.delete("/api/collage/cleanup/{job_id}")
+@app.delete("/api/collage/cleanup/{job_id}", response_model=CleanupResponse)
 async def cleanup_job(job_id: str):
     """Clean up temporary files for a job"""
     job = await get_job(job_id)
@@ -1128,7 +1180,7 @@ async def cleanup_job(job_id: str):
     # Remove from Redis
     await delete_job(job_id)
     
-    return {"message": "Job cleaned up successfully"}
+    return CleanupResponse(message="Job cleaned up successfully")
 
 @app.post("/api/collage/optimize-grid")
 async def optimize_grid(
