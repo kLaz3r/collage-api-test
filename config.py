@@ -48,6 +48,12 @@ class AppSettings(BaseSettings):
     cors_allow_methods: List[str] = Field(default_factory=lambda: ["*"])
     cors_allow_headers: List[str] = Field(default_factory=lambda: ["*"])
 
+    # Preflight and pre-resize
+    preflight_enabled: bool = Field(default=True)
+    preflight_max_total_source_pixels: int = Field(default=1_000_000_000)  # 1 Gigapixel combined
+    pre_resize_enabled: bool = Field(default=True)
+    pre_resize_max_dim: int = Field(default=4000)  # Max width/height in pixels before downscale
+
     model_config = SettingsConfigDict(
         env_prefix="APP_",
         env_file=".env",

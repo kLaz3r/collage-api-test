@@ -1045,6 +1045,37 @@ async def create_collage(
             logger.warning(f"Invalid image file: {safe_filename}")
             raise HTTPException(status_code=400, detail=f"File {safe_filename} is not a valid image")
 
+        # Optional preflight: accumulate total source pixels and optionally pre-resize overly large images
+        try:
+            with Image.open(file_path) as im:
+                src_w, src_h = im.width, im.height
+                # Track cumulative pixel count
+                if settings.preflight_enabled:
+                    # keep an in-request accumulator on the function scope via closure (use list to be mutable)
+                    if 'preflight_total_pixels' not in locals():
+                        preflight_total_pixels = 0
+                    preflight_total_pixels += (src_w * src_h)
+                    total_pixels = preflight_total_pixels
+                    if total_pixels > settings.preflight_max_total_source_pixels:
+                        logger.warning("Preflight pixel budget exceeded")
+                        raise HTTPException(status_code=400, detail="Total image pixels too large; reduce image sizes or count")
+
+                # Optional pre-resize to cap max dimensions for very large sources
+                if settings.pre_resize_enabled and max(src_w, src_h) > settings.pre_resize_max_dim:
+                    scale = settings.pre_resize_max_dim / float(max(src_w, src_h))
+                    new_w = max(1, int(src_w * scale))
+                    new_h = max(1, int(src_h * scale))
+                    im = ImageOps.exif_transpose(im)
+                    im = im.convert('RGB') if im.mode != 'RGB' else im
+                    im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    im.save(file_path, format='JPEG', quality=92)
+        except HTTPException:
+            raise
+        except Exception:
+            # If we cannot inspect image, fail safe
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=f"Failed to process {safe_filename}")
+
         image_paths.append(str(file_path))
 
     # Create config once after files are processed
