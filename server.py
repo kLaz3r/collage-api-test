@@ -40,20 +40,28 @@ except ImportError:
     MAGIC_AVAILABLE = False
 
 from collections import defaultdict
+from logging.handlers import RotatingFileHandler
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('app.log', mode='a')
-    ]
-)
-logger = logging.getLogger(__name__)
+def _configure_logging():
+    handlers = [logging.StreamHandler()]
+    if settings.log_to_file:
+        handlers.append(RotatingFileHandler(
+            settings.log_file_path,
+            maxBytes=settings.log_max_bytes,
+            backupCount=settings.log_backup_count
+        ))
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=handlers
+    )
+    return logging.getLogger(__name__)
 
 # Load settings
 settings = AppSettings()
+
+# Configure logging (after settings)
+logger = _configure_logging()
 
 # Initialize FastAPI app
 app = FastAPI(

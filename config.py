@@ -54,6 +54,13 @@ class AppSettings(BaseSettings):
     pre_resize_enabled: bool = Field(default=True)
     pre_resize_max_dim: int = Field(default=4000)  # Max width/height in pixels before downscale
 
+    # Logging / rotation
+    log_level: str = Field(default="INFO")
+    log_to_file: bool = Field(default=False)
+    log_file_path: str = Field(default="app.log")
+    log_max_bytes: int = Field(default=10 * 1024 * 1024)  # 10MB
+    log_backup_count: int = Field(default=5)
+
     model_config = SettingsConfigDict(
         env_prefix="APP_",
         env_file=".env",
