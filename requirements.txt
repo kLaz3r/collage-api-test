@@ -9,6 +9,9 @@ pydantic-settings==2.2.1
 aiofiles==23.2.1
 python-magic==0.4.27
 
+# Metrics
+prometheus-client==0.20.0
+
 # Optional for production deployment
 redis==5.0.1
 celery==5.3.4

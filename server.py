@@ -20,7 +20,7 @@ from enum import Enum
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Request, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 from PIL import Image, ImageDraw, ImageFilter
@@ -29,6 +29,7 @@ from config import AppSettings
 from redis.asyncio import Redis as AsyncRedis
 from celery_app import celery_app
 import aiofiles
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 # Security imports
 try:
@@ -59,6 +60,19 @@ app = FastAPI(
     description="Create beautiful photo collages with masonry layout",
     version=settings.app_version
 )
+# Prometheus metrics
+REQUEST_COUNT = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'path', 'status']
+)
+REQUEST_LATENCY = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request latency (seconds)',
+    ['method', 'path']
+)
+ACTIVE_JOBS = Gauge('collage_active_jobs', 'Number of active jobs (pending+processing)')
+TOTAL_JOBS = Gauge('collage_total_jobs', 'Number of jobs currently stored')
 
 # Startup/Shutdown events: init redis and start cleanup loop
 @app.on_event("startup")
@@ -1309,7 +1323,8 @@ async def log_requests(request, call_next):
     )
 
     response = await call_next(request)
-    process_time_ms = (datetime.now() - start_time).total_seconds() * 1000
+    elapsed = (datetime.now() - start_time).total_seconds()
+    process_time_ms = elapsed * 1000
 
     # Add response headers
     response.headers["X-Request-ID"] = req_id
@@ -1329,7 +1344,27 @@ async def log_requests(request, call_next):
         client_ip=client_ip,
     )
 
+    # Prometheus metrics
+    try:
+        REQUEST_COUNT.labels(method=request.method, path=request.url.path, status=response.status_code).inc()
+        REQUEST_LATENCY.labels(method=request.method, path=request.url.path).observe(elapsed)
+    except Exception:
+        pass
+
     return response
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    try:
+        # Update job gauges
+        ACTIVE_JOBS.set(await count_active_jobs())
+        TOTAL_JOBS.set(await count_total_jobs())
+    except Exception:
+        # If Redis is unavailable, keep previous values
+        pass
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Health check
 @app.get("/health")
