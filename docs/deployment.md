@@ -262,23 +262,12 @@ sudo journalctl -u collage-api -f
 
 ### Option 3: Nginx + Gunicorn
 
-#### Gunicorn Configuration
+#### Gunicorn Configuration (new)
 
-Create `gunicorn.conf.py`:
+`gunicorn.conf.py` is included and tuned for FastAPI/Uvicorn. Override via env if needed:
 
-```python
-# gunicorn.conf.py
-bind = "127.0.0.1:8000"
-workers = 4
-worker_class = "uvicorn.workers.UvicornWorker"
-worker_connections = 1000
-max_requests = 1000
-max_requests_jitter = 50
-timeout = 30
-keepalive = 2
-user = "www-data"
-group = "www-data"
-tmp_upload_dir = None
+```bash
+GUNICORN_WORKERS=4 GUNICORN_TIMEOUT=120 gunicorn server:app -c gunicorn.conf.py
 ```
 
 #### Nginx Configuration
@@ -353,6 +342,12 @@ sudo ln -s /etc/nginx/sites-available/collage-api /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+## Operations (quick)
+
+-   Metrics: scrape `GET /metrics` (Prometheus format).
+-   CORS: set `APP_CORS_ALLOW_ORIGINS=["https://yourapp.com"]`; credentials off by default.
+-   Security headers: COOP/"same-origin", CORP/"same-site", strict referrer policy, minimal self-only CSP.
 
 ## Production Configuration
 

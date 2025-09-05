@@ -116,6 +116,7 @@ curl -OJ "http://localhost:8000/api/collage/download/<job_id>"
 -   Interactive Docs: `http://localhost:8000/docs`
 -   ReDoc: `http://localhost:8000/redoc`
 -   OpenAPI JSON: `http://localhost:8000/openapi.json`
+-   Prometheus Metrics: `http://localhost:8000/metrics`
 
 For detailed guides, see `docs/`.
 

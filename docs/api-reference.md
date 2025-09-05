@@ -88,7 +88,7 @@ curl -X POST "http://localhost:8000/api/collage/create" \
   -F "dpi=300"
 ```
 
-**Success Response (200):**
+**Success Response (200):** (CreateCollageResponse)
 
 ```json
 {
@@ -133,7 +133,7 @@ Get the status of a collage generation job.
 | --------- | ------ | -------- | ----------------------- |
 | job_id    | string | Yes      | UUID of the collage job |
 
-**Success Response (200):**
+**Success Response (200):** (CollageJobPublic)
 
 ```json
 {
@@ -203,7 +203,7 @@ Download the completed collage image.
 
 List all collage generation jobs.
 
-**Success Response (200):**
+**Success Response (200):** (List[CollageJobPublic])
 
 ```json
 [
@@ -238,7 +238,13 @@ Clean up temporary files for a completed job.
 | --------- | ------ | -------- | --------------------------- |
 | job_id    | string | Yes      | UUID of the job to clean up |
 
-**Success Response (200):**
+**Success Response (200):** (CleanupResponse)
+
+### GET /metrics
+
+Prometheus metrics endpoint.
+
+**Response:** `text/plain; version=0.0.4`
 
 ```json
 {
