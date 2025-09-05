@@ -23,7 +23,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Q
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 import numpy as np
 from config import AppSettings
 from redis.asyncio import Redis as AsyncRedis
@@ -714,6 +714,11 @@ class CollageGenerator:
         for block in image_blocks:
             try:
                 with Image.open(block.image_path) as img:
+                    # Normalize EXIF orientation (rotate/transpose to upright)
+                    try:
+                        img = ImageOps.exif_transpose(img)
+                    except Exception:
+                        pass
                     # Convert to RGB if necessary
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
