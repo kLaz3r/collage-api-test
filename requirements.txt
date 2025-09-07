@@ -8,7 +8,7 @@ pydantic==2.8.0
 pydantic-settings==2.2.1
 aiofiles==23.2.1
 python-magic==0.4.27
-mediapipe==0.10.14
+mediapipe==0.10.21
 
 # Metrics
 prometheus-client==0.20.0
