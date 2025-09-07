@@ -5,6 +5,9 @@ A web API for creating high-resolution photo collages with masonry layout
 
 import io
 import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["absl_logging_minloglevel"] = "2"
 import hashlib
 import uuid
 import json
@@ -41,6 +44,12 @@ except ImportError:
 
 from collections import defaultdict
 from logging.handlers import RotatingFileHandler
+
+# MediaPipe lazy import flags (to allow env vars to be set before import)
+_MEDIAPIPE_IMPORT_TRIED = False
+_MEDIAPIPE_AVAILABLE = False
+mp = None  # type: ignore
+_FACE_DETECTOR = None  # type: ignore
 
 def _configure_logging():
     handlers = [logging.StreamHandler()]
@@ -272,6 +281,10 @@ class CollageConfig(BaseModel):
     maintain_aspect_ratio: bool = True
     apply_shadow: bool = False
     output_format: OutputFormat = OutputFormat.JPEG
+    # Face-aware options
+    face_aware_cropping: bool = False
+    face_margin: float = Field(default=0.08, ge=0.0, le=0.3)
+    pretrim_borders: bool = False
 
     @validator('background_color')
     def validate_color(cls, v):
@@ -290,6 +303,10 @@ class CollagePixelConfig(BaseModel):
     maintain_aspect_ratio: bool = True
     apply_shadow: bool = False
     output_format: OutputFormat = OutputFormat.JPEG
+    # Face-aware options
+    face_aware_cropping: bool = False
+    face_margin: float = Field(default=0.08, ge=0.0, le=0.3)
+    pretrim_borders: bool = False
 
     @validator('background_color')
     def validate_color(cls, v):
@@ -766,6 +783,13 @@ class CollageGenerator:
                     # Convert to RGB if necessary
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
+                    # Optional: pre-trim borders (e.g., black bars from screenshots)
+                    if getattr(self.config, 'pretrim_borders', False):
+                        try:
+                            img = self._trim_borders(img)
+                        except Exception:
+                            # Fail safe: ignore border trim errors
+                            pass
                     
                     # Resize to fit block
                     img_resized = self._smart_resize(img, block.width, block.height)
@@ -812,8 +836,44 @@ class CollageGenerator:
         new_w = max(1, int(round(src_w * scale)))
         new_h = max(1, int(round(src_h * scale)))
         img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        # Face-aware crop if enabled
+        if getattr(self.config, 'face_aware_cropping', False):
+            try:
+                faces = self._detect_faces(img)
+            except Exception:
+                faces = []
+            if faces:
+                # Weighted center by area and score
+                weights = []
+                centers_x = []
+                centers_y = []
+                for (x1, y1, x2, y2, score) in faces:
+                    area = max(1, (x2 - x1)) * max(1, (y2 - y1))
+                    w = max(1e-3, area * max(1e-3, score))
+                    cx = x1 + (x2 - x1) / 2.0
+                    cy = y1 + (y2 - y1) / 2.0
+                    weights.append(w)
+                    centers_x.append(cx * w)
+                    centers_y.append(cy * w)
+                sum_w = sum(weights)
+                if sum_w > 0:
+                    center_x = sum(centers_x) / sum_w
+                    center_y = sum(centers_y) / sum_w
+                else:
+                    center_x = new_w / 2.0
+                    center_y = new_h / 2.0
 
-        # Center-crop to the exact target size
+                # Compute crop window around weighted center
+                left = int(round(center_x - (target_width / 2.0)))
+                top = int(round(center_y - (target_height / 2.0)))
+                left = max(0, min(left, new_w - target_width))
+                top = max(0, min(top, new_h - target_height))
+                right = left + target_width
+                bottom = top + target_height
+                return img.crop((left, top, right, bottom))
+
+        # Fallback: Center-crop to the exact target size
         left = max(0, (new_w - target_width) // 2)
         top = max(0, (new_h - target_height) // 2)
         right = left + target_width
@@ -914,6 +974,165 @@ class CollageGenerator:
                 return (r, g, b, 255)
         return (255, 255, 255, 255)
 
+    def _detect_faces(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
+        """Detect faces using MediaPipe; returns list of (x1, y1, x2, y2, score) in pixel coords.
+
+        Runs on the provided image dimensions. Expects RGB PIL image.
+        """
+        global _MEDIAPIPE_IMPORT_TRIED, _MEDIAPIPE_AVAILABLE, mp, _FACE_DETECTOR
+        if not _MEDIAPIPE_IMPORT_TRIED:
+            # Reduce TensorFlow/absl/glog verbosity prior to importing mediapipe
+            os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # 0=all,1=INFO,2=WARNING,3=ERROR
+            os.environ.setdefault("GLOG_minloglevel", "3")       # 0=INFO,1=WARNING,2=ERROR,3=FATAL
+            os.environ.setdefault("absl_logging_minloglevel", "3")
+            try:
+                import mediapipe as mp  # type: ignore
+                try:
+                    from absl import logging as absl_logging  # type: ignore
+                    absl_logging.set_verbosity(absl_logging.ERROR)
+                except Exception:
+                    pass
+                _MEDIAPIPE_AVAILABLE = True
+            except Exception:
+                mp = None  # type: ignore
+                _MEDIAPIPE_AVAILABLE = False
+            _MEDIAPIPE_IMPORT_TRIED = True
+
+        if not _MEDIAPIPE_AVAILABLE or mp is None:  # type: ignore
+            return []
+        np_img = np.asarray(img)
+        # Ensure 3-channel RGB
+        if np_img.ndim == 2:
+            np_img = np.stack([np_img] * 3, axis=-1)
+        if np_img.shape[2] == 4:
+            np_img = np_img[:, :, :3]
+
+        h, w = np_img.shape[0], np_img.shape[1]
+        detections_out: List[Tuple[int, int, int, int, float]] = []
+
+        # Reuse a single detector instance to avoid repeated init (and repeated warnings)
+        if _FACE_DETECTOR is None:
+            try:
+                _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(  # type: ignore
+                    model_selection=1,
+                    min_detection_confidence=0.5,
+                )
+            except Exception:
+                _FACE_DETECTOR = None
+                return []
+
+        results = None
+        try:
+            results = _FACE_DETECTOR.process(np_img)  # type: ignore
+        except Exception:
+            # Try to recreate once if detector got into a bad state
+            try:
+                _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(  # type: ignore
+                    model_selection=1,
+                    min_detection_confidence=0.5,
+                )
+                results = _FACE_DETECTOR.process(np_img)  # type: ignore
+            except Exception:
+                return []
+
+        if not results or not getattr(results, 'detections', None):
+            return []
+
+        for det in results.detections:  # type: ignore
+            score = float(det.score[0]) if det.score else 0.0
+            rel = det.location_data.relative_bounding_box
+            x = max(0.0, float(rel.xmin)) * w
+            y = max(0.0, float(rel.ymin)) * h
+            bw = max(0.0, float(rel.width)) * w
+            bh = max(0.0, float(rel.height)) * h
+            x1 = int(max(0, round(x)))
+            y1 = int(max(0, round(y)))
+            x2 = int(min(w, round(x + bw)))
+            y2 = int(min(h, round(y + bh)))
+            if x2 > x1 and y2 > y1:
+                # Expand a bit using face_margin but keep inside image
+                margin = getattr(self.config, 'face_margin', 0.08)
+                mx = int(round((x2 - x1) * margin))
+                my = int(round((y2 - y1) * margin))
+                x1 = max(0, x1 - mx)
+                y1 = max(0, y1 - my)
+                x2 = min(w, x2 + mx)
+                y2 = min(h, y2 + my)
+                detections_out.append((x1, y1, x2, y2, score))
+        return detections_out
+
+    def _trim_borders(self, img: Image.Image) -> Image.Image:
+        """Trim solid uniform borders (e.g., black bars) from edges conservatively.
+
+        Detects near-constant top/bottom rows and left/right columns and crops them
+        if they exceed a small fraction of the dimension.
+        """
+        arr = np.asarray(img)
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        if arr.shape[2] == 4:
+            arr = arr[:, :, :3]
+        h, w = arr.shape[0], arr.shape[1]
+        if h < 40 or w < 40:
+            return img
+
+        # Luminance
+        lum = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]).astype(np.float32)
+        std_thresh = 2.0
+        dark_thresh = 16.0
+        bright_thresh = 239.0
+        min_frac = 0.04
+
+        def scan_rows(start: int, step: int) -> int:
+            count = 0
+            i = start
+            while 0 <= i < h:
+                row = lum[i, :]
+                row_std = float(row.std())
+                row_mean = float(row.mean())
+                if row_std < std_thresh and (row_mean <= dark_thresh or row_mean >= bright_thresh):
+                    count += 1
+                    i += step
+                else:
+                    break
+            return count
+
+        def scan_cols(start: int, step: int) -> int:
+            count = 0
+            j = start
+            while 0 <= j < w:
+                col = lum[:, j]
+                col_std = float(col.std())
+                col_mean = float(col.mean())
+                if col_std < std_thresh and (col_mean <= dark_thresh or col_mean >= bright_thresh):
+                    count += 1
+                    j += step
+                else:
+                    break
+            return count
+
+        top_bar = scan_rows(0, 1)
+        bottom_bar = scan_rows(h - 1, -1)
+        left_bar = scan_cols(0, 1)
+        right_bar = scan_cols(w - 1, -1)
+
+        # Require minimum fractional size to avoid accidental trims
+        min_rows = int(h * min_frac)
+        min_cols = int(w * min_frac)
+        top_bar = top_bar if top_bar >= min_rows else 0
+        bottom_bar = bottom_bar if bottom_bar >= min_rows else 0
+        left_bar = left_bar if left_bar >= min_cols else 0
+        right_bar = right_bar if right_bar >= min_cols else 0
+
+        new_left = left_bar
+        new_top = top_bar
+        new_right = w - right_bar
+        new_bottom = h - bottom_bar
+
+        if new_left < new_right and new_top < new_bottom and (left_bar or right_bar or top_bar or bottom_bar):
+            return img.crop((new_left, new_top, new_right, new_bottom))
+        return img
+
 class CollageGeneratorPixels(CollageGenerator):
     """Generator variant that accepts pixel-based dimensions directly."""
 
@@ -1007,7 +1226,10 @@ async def create_collage(
     background_color: str = Form(default="#FFFFFF"),
     maintain_aspect_ratio: bool = Form(default=True),
     apply_shadow: bool = Form(default=False),
-    output_format: OutputFormat = Form(default=OutputFormat.JPEG)
+    output_format: OutputFormat = Form(default=OutputFormat.JPEG),
+    face_aware_cropping: bool = Form(default=False),
+    face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
+    pretrim_borders: bool = Form(default=False)
 ):
     """Create a new collage from uploaded images"""
 
@@ -1126,7 +1348,10 @@ async def create_collage(
             background_color=background_color,
             maintain_aspect_ratio=maintain_aspect_ratio,
             apply_shadow=apply_shadow,
-            output_format=output_format
+            output_format=output_format,
+            face_aware_cropping=face_aware_cropping,
+            face_margin=face_margin,
+            pretrim_borders=pretrim_borders
         )
 
     logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
@@ -1142,6 +1367,9 @@ async def create_collage(
         "maintain_aspect_ratio": config.maintain_aspect_ratio,
         "apply_shadow": config.apply_shadow,
         "output_format": config.output_format.value,
+        "face_aware_cropping": config.face_aware_cropping,
+        "face_margin": config.face_margin,
+        "pretrim_borders": config.pretrim_borders,
     }
     celery_app.send_task(
         "tasks.generate_collage_task",
@@ -1162,7 +1390,10 @@ async def create_collage_pixels(
     background_color: str = Form(default="#FFFFFF"),
     maintain_aspect_ratio: bool = Form(default=True),
     apply_shadow: bool = Form(default=False),
-    output_format: OutputFormat = Form(default=OutputFormat.JPEG)
+    output_format: OutputFormat = Form(default=OutputFormat.JPEG),
+    face_aware_cropping: bool = Form(default=False),
+    face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
+    pretrim_borders: bool = Form(default=False)
 ):
     """Create a new collage from uploaded images using pixel dimensions."""
 
@@ -1264,7 +1495,10 @@ async def create_collage_pixels(
         background_color=background_color,
         maintain_aspect_ratio=maintain_aspect_ratio,
         apply_shadow=apply_shadow,
-        output_format=output_format
+        output_format=output_format,
+        face_aware_cropping=face_aware_cropping,
+        face_margin=face_margin,
+        pretrim_borders=pretrim_borders
     )
 
     logger.info(f"Collage job {job_id} (pixels) created with {len(image_paths)} images")
@@ -1279,6 +1513,9 @@ async def create_collage_pixels(
         "maintain_aspect_ratio": config.maintain_aspect_ratio,
         "apply_shadow": config.apply_shadow,
         "output_format": config.output_format.value,
+        "face_aware_cropping": config.face_aware_cropping,
+        "face_margin": config.face_margin,
+        "pretrim_borders": config.pretrim_borders,
     }
     celery_app.send_task(
         "tasks.generate_collage_pixels_task",

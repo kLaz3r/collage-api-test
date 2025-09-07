@@ -66,6 +66,9 @@ def generate_collage_task(job_id: str, image_paths: List[str], config_data: Dict
         maintain_aspect_ratio=bool(config_data.get("maintain_aspect_ratio")),
         apply_shadow=bool(config_data.get("apply_shadow")),
         output_format=_to_output_format(config_data.get("output_format")),
+        face_aware_cropping=bool(config_data.get("face_aware_cropping", False)),
+        face_margin=float(config_data.get("face_margin", 0.08)),
+        pretrim_borders=bool(config_data.get("pretrim_borders", False)),
     )
 
     try:
@@ -114,6 +117,9 @@ def generate_collage_pixels_task(job_id: str, image_paths: List[str], config_dat
         maintain_aspect_ratio=bool(config_data.get("maintain_aspect_ratio")),
         apply_shadow=bool(config_data.get("apply_shadow")),
         output_format=_to_output_format(config_data.get("output_format")),
+        face_aware_cropping=bool(config_data.get("face_aware_cropping", False)),
+        face_margin=float(config_data.get("face_margin", 0.08)),
+        pretrim_borders=bool(config_data.get("pretrim_borders", False)),
     )
 
     try:

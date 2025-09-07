@@ -37,7 +37,7 @@ class AppSettings(BaseSettings):
     # Redis
     redis_url: str | None = Field(default=None)
     redis_host: str = Field(default="192.168.3.2")
-    redis_port: int = Field(default=6379)
+    redis_port: int = Field(default=6380)
     redis_db: int = Field(default=0)
     job_ttl_seconds: int = Field(default=1 * 60 * 60)  # 1h
     cleanup_interval_seconds: int = Field(default=600)  # 10 minutes
