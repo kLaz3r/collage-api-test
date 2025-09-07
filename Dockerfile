@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.13-slim AS base
+FROM python:3.11-slim AS base
 
 # Prevent Python from writing .pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,12 +11,16 @@ WORKDIR /app
 # System deps: libmagic for python-magic, curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
+    libgl1 \
+    libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip tooling and install deps
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy app
 COPY . .
