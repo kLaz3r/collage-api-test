@@ -113,7 +113,7 @@ async def on_shutdown():
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allow_origins or ["http://localhost", "http://localhost:3000", "https://college-maker-frontend.vercel.app"],
+    allow_origins=["http://localhost", "http://localhost:3000", "https://college-maker-frontend.vercel.app"],
     allow_credentials=settings.cors_allow_credentials,
     allow_methods=settings.cors_allow_methods,
     allow_headers=settings.cors_allow_headers,
