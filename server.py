@@ -115,6 +115,7 @@ async def on_shutdown():
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "https://college-maker-frontend.vercel.app",
+    "https://photoweave.vercel.app/",
 ]
 app.add_middleware(
     CORSMiddleware,
