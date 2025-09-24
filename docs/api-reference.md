@@ -394,6 +394,80 @@ Creates a new collage using pixel-based dimensions. Optimized for digital displa
 | `face_margin`           | number  | No       | 0.08      | Margin around faces (0.0-0.3)         |
 | `pretrim_borders`       | boolean | No       | false     | Trim solid uniform borders            |
 
+### Preview Collage (mm-based dimensions)
+
+**Endpoint:** `POST /api/collage/preview`
+
+Generates a fast preview of the final collage and returns the image directly. The preview uses the same layout logic and parameters as the main create endpoint, but the canvas is scaled so the longest edge is 500px for speed and low resource usage.
+
+#### Parameters
+
+-   Same as the Create Collage (mm-based) endpoint.
+
+#### Responses
+
+**Success (200 OK)**
+
+-   Body: Image bytes (`image/jpeg`, `image/png`, or `image/tiff` depending on `output_format`)
+-   Headers: `Cache-Control: no-store`
+
+**Error Responses**
+
+-   `400 Bad Request` - Invalid parameters or missing files
+-   `413 Payload Too Large` - File size limits exceeded
+-   `422 Unprocessable Entity` - Validation errors
+-   `500 Internal Server Error` - Server error
+
+#### Example
+
+```bash
+curl -X POST http://localhost:8000/api/collage/preview \
+  -F "files=@/path/img1.jpg" \
+  -F "files=@/path/img2.jpg" \
+  -F width_mm=304.8 -F height_mm=457.2 -F dpi=150 \
+  -F layout_style=masonry -F spacing=40 \
+  -F background_color=#FFFFFF -F maintain_aspect_ratio=true \
+  -F apply_shadow=false -F output_format=jpeg \
+  --output preview.jpg
+```
+
+### Preview Collage (pixel-based dimensions)
+
+**Endpoint:** `POST /api/collage/preview-pixels`
+
+Generates a fast preview of the final collage using pixel-based dimensions. The canvas is downscaled so the longest edge is 500px. Returns the image directly.
+
+#### Parameters
+
+-   Same as the Create Collage (pixel-based) endpoint.
+
+#### Responses
+
+**Success (200 OK)**
+
+-   Body: Image bytes (`image/jpeg`, `image/png`, or `image/tiff` depending on `output_format`)
+-   Headers: `Cache-Control: no-store`
+
+**Error Responses**
+
+-   `400 Bad Request` - Invalid parameters or missing files
+-   `413 Payload Too Large` - File size limits exceeded
+-   `422 Unprocessable Entity` - Validation errors
+-   `500 Internal Server Error` - Server error
+
+#### Example
+
+```bash
+curl -X POST http://localhost:8000/api/collage/preview-pixels \
+  -F "files=@/path/img1.jpg" \
+  -F "files=@/path/img2.jpg" \
+  -F width_px=1920 -F height_px=1080 -F dpi=96 \
+  -F layout_style=masonry -F spacing=40 \
+  -F background_color=#FFFFFF -F maintain_aspect_ratio=true \
+  -F apply_shadow=false -F output_format=jpeg \
+  --output preview.jpg
+```
+
 ### Get Job Status
 
 **Endpoint:** `GET /api/collage/status/{job_id}`

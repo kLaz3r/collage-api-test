@@ -111,9 +111,14 @@ async def on_shutdown():
         await redis_client.close()
 
 # Add CORS middleware
+# Shared CORS allowlist for use in middleware early returns
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "https://college-maker-frontend.vercel.app",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://college-maker-frontend.vercel.app"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=settings.cors_allow_credentials,
     allow_methods=settings.cors_allow_methods,
     allow_headers=settings.cors_allow_headers,
@@ -740,6 +745,16 @@ def sanitize_filename(filename: str) -> str:
     filename = filename[:100]
     return filename
 
+def _scale_to_max_edge(width_px: int, height_px: int, max_edge: int = 500) -> Tuple[int, int]:
+    """Scale dimensions to fit within max_edge on the longest side while preserving aspect ratio."""
+    if width_px <= 0 or height_px <= 0:
+        return (max_edge, max_edge)
+    longest = max(width_px, height_px)
+    if longest <= max_edge:
+        return (int(width_px), int(height_px))
+    scale = max_edge / float(longest)
+    return (max(1, int(round(width_px * scale))), max(1, int(round(height_px * scale))))
+
  
 
 
@@ -1145,6 +1160,37 @@ class CollageGeneratorPixels(CollageGenerator):
                 f"Canvas too large: {self.canvas_width*self.canvas_height} pixels exceeds limit {MAX_CANVAS_PIXELS}"
             )
 
+# Lightweight config used by preview endpoints to allow small (<320px) sides
+class _PreviewPixelConfig:
+    def __init__(
+        self,
+        *,
+        width_px: int,
+        height_px: int,
+        dpi: int,
+        layout_style: LayoutStyle,
+        spacing: float,
+        background_color: str,
+        maintain_aspect_ratio: bool,
+        apply_shadow: bool,
+        output_format: OutputFormat,
+        face_aware_cropping: bool,
+        face_margin: float,
+        pretrim_borders: bool,
+    ) -> None:
+        self.width_px = int(width_px)
+        self.height_px = int(height_px)
+        self.dpi = int(dpi)
+        self.layout_style = layout_style
+        self.spacing = float(spacing)
+        self.background_color = background_color
+        self.maintain_aspect_ratio = bool(maintain_aspect_ratio)
+        self.apply_shadow = bool(apply_shadow)
+        self.output_format = output_format
+        self.face_aware_cropping = bool(face_aware_cropping)
+        self.face_margin = float(face_margin)
+        self.pretrim_borders = bool(pretrim_borders)
+
 async def process_collage(job_id: str, image_paths: List[str], config: CollageConfig):
     """Background task to process collage generation"""
     try:
@@ -1208,6 +1254,8 @@ async def root():
         "endpoints": {
             "create_collage": "/api/collage/create",
             "create_collage_pixels": "/api/collage/create-pixels",
+            "preview_collage": "/api/collage/preview",
+            "preview_collage_pixels": "/api/collage/preview-pixels",
             "get_status": "/api/collage/status/{job_id}",
             "download": "/api/collage/download/{job_id}",
             "list_jobs": "/api/collage/jobs"
@@ -1524,6 +1572,272 @@ async def create_collage_pixels(
 
     return CreateCollageResponse(job_id=job_id, status="pending", message="Collage generation started")
 
+@app.post("/api/collage/preview")
+async def preview_collage(
+    files: List[UploadFile] = File(...),
+    width_mm: float = Form(default=304.8, ge=50, le=1219.2),
+    height_mm: float = Form(default=457.2, ge=50, le=1219.2),
+    dpi: int = Form(default=150, ge=72, le=300),
+    layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
+    spacing: float = Form(default=40.0, ge=0.0, le=100.0),
+    background_color: str = Form(default="#FFFFFF"),
+    maintain_aspect_ratio: bool = Form(default=True),
+    apply_shadow: bool = Form(default=False),
+    output_format: OutputFormat = Form(default=OutputFormat.JPEG),
+    face_aware_cropping: bool = Form(default=False),
+    face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
+    pretrim_borders: bool = Form(default=False)
+):
+    """Generate a fast preview of the collage (500px longest edge) synchronously and return the image."""
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 images required")
+    if len(files) > 200:
+        raise HTTPException(status_code=400, detail="Maximum 200 images allowed")
+
+    # Compute target preview canvas in pixels from mm/dpi, then scale to 500px max edge
+    target_w = int((width_mm / 25.4) * dpi)
+    target_h = int((height_mm / 25.4) * dpi)
+    prev_w, prev_h = _scale_to_max_edge(target_w, target_h, 500)
+
+    # Persist uploads temporarily (reuse validation + existing loaders)
+    temp_id = str(uuid.uuid4())
+    image_paths: List[str] = []
+    total_size = 0
+    preview_source_max_dim = 1600  # aggressively cap source size for speed
+    try:
+        for file in files:
+            safe_filename = sanitize_filename(file.filename or "image.jpg")
+            file_path = TEMP_DIR / f"{temp_id}_{safe_filename}"
+            bytes_written = 0
+            async with aiofiles.open(file_path, 'wb') as out_f:
+                while True:
+                    chunk = await file.read(STREAM_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    bytes_written += len(chunk)
+                    total_size += len(chunk)
+                    if bytes_written > MAX_IMAGE_SIZE:
+                        await out_f.close()
+                        file_path.unlink(missing_ok=True)
+                        raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
+                    if total_size > MAX_TOTAL_SIZE:
+                        await out_f.close()
+                        file_path.unlink(missing_ok=True)
+                        raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
+                    await out_f.write(chunk)
+
+            if not validate_image_file(str(file_path)):
+                file_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"File {safe_filename} is not a valid image")
+
+            # Downscale large sources aggressively for preview speed
+            try:
+                with Image.open(file_path) as im:
+                    src_w, src_h = im.width, im.height
+                    if settings.preflight_enabled:
+                        if 'preflight_total_pixels' not in locals():
+                            preflight_total_pixels = 0
+                        preflight_total_pixels += (src_w * src_h)
+                        if preflight_total_pixels > settings.preflight_max_total_source_pixels:
+                            file_path.unlink(missing_ok=True)
+                            raise HTTPException(status_code=400, detail="Total image pixels too large; reduce image sizes or count")
+                    if max(src_w, src_h) > preview_source_max_dim:
+                        scale = preview_source_max_dim / float(max(src_w, src_h))
+                        new_w = max(1, int(src_w * scale))
+                        new_h = max(1, int(src_h * scale))
+                        im = ImageOps.exif_transpose(im)
+                        im = im.convert('RGB') if im.mode != 'RGB' else im
+                        im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                        im.save(file_path, format='JPEG', quality=90)
+            except HTTPException:
+                raise
+            except Exception:
+                file_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"Failed to process {safe_filename}")
+
+            image_paths.append(str(file_path))
+
+        # Build pixel-based config for preview canvas
+        config = _PreviewPixelConfig(
+            width_px=prev_w,
+            height_px=prev_h,
+            dpi=96,  # standard screen dpi for previews
+            layout_style=layout_style,
+            spacing=spacing,
+            background_color=background_color,
+            maintain_aspect_ratio=maintain_aspect_ratio,
+            apply_shadow=apply_shadow,
+            output_format=output_format,
+            face_aware_cropping=face_aware_cropping,
+            face_margin=face_margin,
+            pretrim_borders=pretrim_borders
+        )
+
+        # Layout blocks
+        if layout_style == LayoutStyle.MASONRY:
+            packer = MasonryPacker(prev_w, prev_h, spacing)
+            blocks = packer.pack_images(image_paths, maintain_aspect_ratio)
+        else:
+            packer = GridPacker(prev_w, prev_h, spacing)
+            blocks = packer.pack_images(image_paths)
+
+        # Generate to a temporary file and stream back
+        generator = CollageGeneratorPixels(config)
+        ext = output_format.value
+        tmp_output = TEMP_DIR / f"preview_{temp_id}.{ext}"
+        generator.generate(blocks, str(tmp_output))
+
+        # Read file into memory and respond
+        async with aiofiles.open(tmp_output, 'rb') as f:
+            data = await f.read()
+
+        media_type = 'image/jpeg'
+        if ext == 'png':
+            media_type = 'image/png'
+        elif ext in ('tiff', 'tif'):
+            media_type = 'image/tiff'
+
+        return Response(content=data, media_type=media_type, headers={
+            'Cache-Control': 'no-store',
+        })
+    finally:
+        # Cleanup temp files
+        try:
+            for p in list(TEMP_DIR.glob(f"{temp_id}_*")):
+                p.unlink(missing_ok=True)
+            for p in list(TEMP_DIR.glob(f"preview_{temp_id}.*")):
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+@app.post("/api/collage/preview-pixels")
+async def preview_collage_pixels(
+    files: List[UploadFile] = File(...),
+    width_px: int = Form(default=1920, ge=320, le=20000),
+    height_px: int = Form(default=1080, ge=320, le=20000),
+    dpi: int = Form(default=96, ge=72, le=300),
+    layout_style: LayoutStyle = Form(default=LayoutStyle.MASONRY),
+    spacing: float = Form(default=40.0, ge=0.0, le=100.0),
+    background_color: str = Form(default="#FFFFFF"),
+    maintain_aspect_ratio: bool = Form(default=True),
+    apply_shadow: bool = Form(default=False),
+    output_format: OutputFormat = Form(default=OutputFormat.JPEG),
+    face_aware_cropping: bool = Form(default=False),
+    face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
+    pretrim_borders: bool = Form(default=False)
+):
+    """Generate a fast preview of the collage (500px longest edge) synchronously using pixel dimensions."""
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 images required")
+    if len(files) > 200:
+        raise HTTPException(status_code=400, detail="Maximum 200 images allowed")
+
+    prev_w, prev_h = _scale_to_max_edge(int(width_px), int(height_px), 500)
+
+    temp_id = str(uuid.uuid4())
+    image_paths: List[str] = []
+    total_size = 0
+    preview_source_max_dim = 1600
+    try:
+        for file in files:
+            safe_filename = sanitize_filename(file.filename or "image.jpg")
+            file_path = TEMP_DIR / f"{temp_id}_{safe_filename}"
+            bytes_written = 0
+            async with aiofiles.open(file_path, 'wb') as out_f:
+                while True:
+                    chunk = await file.read(STREAM_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    bytes_written += len(chunk)
+                    total_size += len(chunk)
+                    if bytes_written > MAX_IMAGE_SIZE:
+                        await out_f.close()
+                        file_path.unlink(missing_ok=True)
+                        raise HTTPException(status_code=400, detail=f"File {safe_filename} exceeds 10MB limit")
+                    if total_size > MAX_TOTAL_SIZE:
+                        await out_f.close()
+                        file_path.unlink(missing_ok=True)
+                        raise HTTPException(status_code=400, detail="Total file size exceeds 500MB limit")
+                    await out_f.write(chunk)
+
+            if not validate_image_file(str(file_path)):
+                file_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"File {safe_filename} is not a valid image")
+
+            try:
+                with Image.open(file_path) as im:
+                    src_w, src_h = im.width, im.height
+                    if settings.preflight_enabled:
+                        if 'preflight_total_pixels' not in locals():
+                            preflight_total_pixels = 0
+                        preflight_total_pixels += (src_w * src_h)
+                        if preflight_total_pixels > settings.preflight_max_total_source_pixels:
+                            file_path.unlink(missing_ok=True)
+                            raise HTTPException(status_code=400, detail="Total image pixels too large; reduce image sizes or count")
+                    if max(src_w, src_h) > preview_source_max_dim:
+                        scale = preview_source_max_dim / float(max(src_w, src_h))
+                        new_w = max(1, int(src_w * scale))
+                        new_h = max(1, int(src_h * scale))
+                        im = ImageOps.exif_transpose(im)
+                        im = im.convert('RGB') if im.mode != 'RGB' else im
+                        im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                        im.save(file_path, format='JPEG', quality=90)
+            except HTTPException:
+                raise
+            except Exception:
+                file_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"Failed to process {safe_filename}")
+
+            image_paths.append(str(file_path))
+
+        config = _PreviewPixelConfig(
+            width_px=prev_w,
+            height_px=prev_h,
+            dpi=dpi,
+            layout_style=layout_style,
+            spacing=spacing,
+            background_color=background_color,
+            maintain_aspect_ratio=maintain_aspect_ratio,
+            apply_shadow=apply_shadow,
+            output_format=output_format,
+            face_aware_cropping=face_aware_cropping,
+            face_margin=face_margin,
+            pretrim_borders=pretrim_borders
+        )
+
+        if layout_style == LayoutStyle.MASONRY:
+            packer = MasonryPacker(prev_w, prev_h, spacing)
+            blocks = packer.pack_images(image_paths, maintain_aspect_ratio)
+        else:
+            packer = GridPacker(prev_w, prev_h, spacing)
+            blocks = packer.pack_images(image_paths)
+
+        generator = CollageGeneratorPixels(config)
+        ext = output_format.value
+        tmp_output = TEMP_DIR / f"preview_{temp_id}.{ext}"
+        generator.generate(blocks, str(tmp_output))
+
+        async with aiofiles.open(tmp_output, 'rb') as f:
+            data = await f.read()
+
+        media_type = 'image/jpeg'
+        if ext == 'png':
+            media_type = 'image/png'
+        elif ext in ('tiff', 'tif'):
+            media_type = 'image/tiff'
+
+        return Response(content=data, media_type=media_type, headers={
+            'Cache-Control': 'no-store',
+        })
+    finally:
+        try:
+            for p in list(TEMP_DIR.glob(f"{temp_id}_*")):
+                p.unlink(missing_ok=True)
+            for p in list(TEMP_DIR.glob(f"preview_{temp_id}.*")):
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
 @app.get("/api/collage/status/{job_id}", response_model=CollageJobPublic)
 async def get_status(job_id: str):
     """Get the status of a collage generation job"""
@@ -1799,19 +2113,29 @@ async def log_requests(request, call_next):
     # Client IP for rate limiting
     client_ip = request.client.host if request.client else "unknown"
 
-    # Rate limit check
-    if not check_rate_limit(client_ip):
-        _log_json(
-            "rate_limit_exceeded",
-            request_id=req_id,
-            method=request.method,
-            path=request.url.path,
-            client_ip=client_ip,
-        )
-        return JSONResponse(
-            status_code=429,
-            content={"error": "Rate limit exceeded. Please try again later.", "request_id": req_id}
-        )
+    # Allow preflight to pass through to CORS handler without rate limiting
+    if request.method != "OPTIONS":
+        # Rate limit check
+        if not check_rate_limit(client_ip):
+            _log_json(
+                "rate_limit_exceeded",
+                request_id=req_id,
+                method=request.method,
+                path=request.url.path,
+                client_ip=client_ip,
+            )
+            resp = JSONResponse(
+                status_code=429,
+                content={"error": "Rate limit exceeded. Please try again later.", "request_id": req_id}
+            )
+            # Ensure CORS headers are present on early returns
+            origin = request.headers.get("origin")
+            if origin and origin in CORS_ALLOWED_ORIGINS:
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                if settings.cors_allow_credentials:
+                    resp.headers["Access-Control-Allow-Credentials"] = "true"
+                resp.headers["Vary"] = "Origin"
+            return resp
 
     start_time = datetime.now()
     _log_json(
