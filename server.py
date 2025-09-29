@@ -18,6 +18,7 @@ import tempfile
 import shutil
 import logging
 import time
+import sys
 from typing import List, Optional, Dict, Tuple, Literal
 from datetime import datetime
 from enum import Enum
@@ -229,6 +230,25 @@ async def is_redis_connected() -> bool:
         return bool(pong)
     except Exception:
         return False
+
+def get_mediapipe_version() -> Optional[str]:
+    """Get mediapipe version if available"""
+    global _MEDIAPIPE_AVAILABLE, _MEDIAPIPE_IMPORT_TRIED, mp
+    if not _MEDIAPIPE_IMPORT_TRIED:
+        # Try to import mediapipe to populate the flags
+        try:
+            import mediapipe as mp  # type: ignore
+            _MEDIAPIPE_AVAILABLE = True
+        except Exception:
+            _MEDIAPIPE_AVAILABLE = False
+        _MEDIAPIPE_IMPORT_TRIED = True
+
+    if _MEDIAPIPE_AVAILABLE and mp is not None:
+        try:
+            return getattr(mp, '__version__', 'unknown')
+        except Exception:
+            return 'installed'
+    return None
 
 async def cleanup_stale_files() -> None:
     """Delete files for jobs that no longer exist in Redis (expired/cleaned)."""
@@ -2235,10 +2255,19 @@ async def health_check():
         # Check active jobs (from Redis)
         active_jobs = await count_active_jobs()
 
+        # Get Python and mediapipe information
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        mediapipe_version = get_mediapipe_version()
+
         health_status = {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
             "version": settings.app_version,
+            "python_version": python_version,
+            "mediapipe": {
+                "installed": mediapipe_version is not None,
+                "version": mediapipe_version
+            },
             "checks": {
                 "filesystem": {
                     "temp_dir": str(TEMP_DIR),
