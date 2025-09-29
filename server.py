@@ -291,6 +291,7 @@ class CollageConfig(BaseModel):
     face_aware_cropping: bool = False
     face_margin: float = Field(default=0.08, ge=0.0, le=0.3)
     pretrim_borders: bool = False
+    debug_faces: bool = False
 
     @validator('background_color')
     def validate_color(cls, v):
@@ -313,6 +314,7 @@ class CollagePixelConfig(BaseModel):
     face_aware_cropping: bool = False
     face_margin: float = Field(default=0.08, ge=0.0, le=0.3)
     pretrim_borders: bool = False
+    debug_faces: bool = False
 
     @validator('background_color')
     def validate_color(cls, v):
@@ -822,7 +824,22 @@ class CollageGenerator:
             except Exception as e:
                 print(f"Error processing image {block.image_path}: {e}")
                 continue
-        
+
+        # Debug: Draw face detection boxes if enabled
+        if getattr(self.config, 'debug_faces', False):
+            try:
+                faces = self._detect_faces(canvas)
+                if faces:
+                    # Draw green boxes around detected faces
+                    draw = ImageDraw.Draw(canvas)
+                    for (x1, y1, x2, y2, score) in faces:
+                        # Draw rectangle with green color, thickness 3
+                        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+                        # Optionally add score text
+                        draw.text((x1, y1 - 15), f"Face {score:.2f}", fill=(0, 255, 0))
+            except Exception as e:
+                print(f"Error drawing face debug boxes: {e}")
+
         # Save the final image in the specified format
         if self.config.output_format == OutputFormat.JPEG:
             # JPEG does not support alpha
@@ -834,7 +851,7 @@ class CollageGenerator:
             canvas.save(output_path, 'PNG', dpi=(self.config.dpi, self.config.dpi))
         elif self.config.output_format == OutputFormat.TIFF:
             canvas.save(output_path, 'TIFF', dpi=(self.config.dpi, self.config.dpi), compression='tiff_lzw')
-        
+
         return output_path
     
     def _smart_resize(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
@@ -1178,6 +1195,7 @@ class _PreviewPixelConfig:
         face_aware_cropping: bool,
         face_margin: float,
         pretrim_borders: bool,
+        debug_faces: bool,
     ) -> None:
         self.width_px = int(width_px)
         self.height_px = int(height_px)
@@ -1191,6 +1209,7 @@ class _PreviewPixelConfig:
         self.face_aware_cropping = bool(face_aware_cropping)
         self.face_margin = float(face_margin)
         self.pretrim_borders = bool(pretrim_borders)
+        self.debug_faces = bool(debug_faces)
 
 async def process_collage(job_id: str, image_paths: List[str], config: CollageConfig):
     """Background task to process collage generation"""
@@ -1278,7 +1297,8 @@ async def create_collage(
     output_format: OutputFormat = Form(default=OutputFormat.JPEG),
     face_aware_cropping: bool = Form(default=False),
     face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
-    pretrim_borders: bool = Form(default=False)
+    pretrim_borders: bool = Form(default=False),
+    debug_faces: bool = Form(default=False)
 ):
     """Create a new collage from uploaded images"""
 
@@ -1400,7 +1420,8 @@ async def create_collage(
             output_format=output_format,
             face_aware_cropping=face_aware_cropping,
             face_margin=face_margin,
-            pretrim_borders=pretrim_borders
+            pretrim_borders=pretrim_borders,
+            debug_faces=debug_faces
         )
 
     logger.info(f"Collage job {job_id} created with {len(image_paths)} images")
@@ -1419,6 +1440,7 @@ async def create_collage(
         "face_aware_cropping": config.face_aware_cropping,
         "face_margin": config.face_margin,
         "pretrim_borders": config.pretrim_borders,
+        "debug_faces": config.debug_faces,
     }
     celery_app.send_task(
         "tasks.generate_collage_task",
@@ -1442,7 +1464,8 @@ async def create_collage_pixels(
     output_format: OutputFormat = Form(default=OutputFormat.JPEG),
     face_aware_cropping: bool = Form(default=False),
     face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
-    pretrim_borders: bool = Form(default=False)
+    pretrim_borders: bool = Form(default=False),
+    debug_faces: bool = Form(default=False)
 ):
     """Create a new collage from uploaded images using pixel dimensions."""
 
@@ -1547,7 +1570,8 @@ async def create_collage_pixels(
         output_format=output_format,
         face_aware_cropping=face_aware_cropping,
         face_margin=face_margin,
-        pretrim_borders=pretrim_borders
+        pretrim_borders=pretrim_borders,
+        debug_faces=debug_faces
     )
 
     logger.info(f"Collage job {job_id} (pixels) created with {len(image_paths)} images")
@@ -1565,6 +1589,7 @@ async def create_collage_pixels(
         "face_aware_cropping": config.face_aware_cropping,
         "face_margin": config.face_margin,
         "pretrim_borders": config.pretrim_borders,
+        "debug_faces": config.debug_faces,
     }
     celery_app.send_task(
         "tasks.generate_collage_pixels_task",
@@ -1587,7 +1612,8 @@ async def preview_collage(
     output_format: OutputFormat = Form(default=OutputFormat.JPEG),
     face_aware_cropping: bool = Form(default=False),
     face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
-    pretrim_borders: bool = Form(default=False)
+    pretrim_borders: bool = Form(default=False),
+    debug_faces: bool = Form(default=False)
 ):
     """Generate a fast preview of the collage (500px longest edge) synchronously and return the image."""
     if len(files) < 2:
@@ -1671,7 +1697,8 @@ async def preview_collage(
             output_format=output_format,
             face_aware_cropping=face_aware_cropping,
             face_margin=face_margin,
-            pretrim_borders=pretrim_borders
+            pretrim_borders=pretrim_borders,
+            debug_faces=debug_faces
         )
 
         # Layout blocks
@@ -1725,7 +1752,8 @@ async def preview_collage_pixels(
     output_format: OutputFormat = Form(default=OutputFormat.JPEG),
     face_aware_cropping: bool = Form(default=False),
     face_margin: float = Form(default=0.08, ge=0.0, le=0.3),
-    pretrim_borders: bool = Form(default=False)
+    pretrim_borders: bool = Form(default=False),
+    debug_faces: bool = Form(default=False)
 ):
     """Generate a fast preview of the collage (500px longest edge) synchronously using pixel dimensions."""
     if len(files) < 2:
@@ -1803,7 +1831,8 @@ async def preview_collage_pixels(
             output_format=output_format,
             face_aware_cropping=face_aware_cropping,
             face_margin=face_margin,
-            pretrim_borders=pretrim_borders
+            pretrim_borders=pretrim_borders,
+            debug_faces=debug_faces
         )
 
         if layout_style == LayoutStyle.MASONRY:
