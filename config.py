@@ -61,6 +61,10 @@ class AppSettings(BaseSettings):
     log_max_bytes: int = Field(default=10 * 1024 * 1024)  # 10MB
     log_backup_count: int = Field(default=5)
 
+    # Celery worker configuration
+    celery_worker_pool: str | None = Field(default=None)  # Override worker pool (solo, prefork, threads, etc.)
+    celery_worker_concurrency: int | None = Field(default=None)  # Override worker concurrency
+
     model_config = SettingsConfigDict(
         env_prefix="APP_",
         env_file=".env",

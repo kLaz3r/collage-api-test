@@ -78,3 +78,40 @@ Minimal `.env` example:
 APP_REDIS_URL=redis://localhost:6379/0
 APP_CORS_ALLOW_ORIGINS=["http://localhost","http://localhost:3000"]
 ```
+
+## Windows Development
+
+On Windows, Celery workers may encounter permission errors with multiprocessing. The application automatically detects Windows and uses the `solo` worker pool to avoid these issues.
+
+### Windows-specific configuration
+
+You can override the default Windows configuration by setting these environment variables:
+
+```bash
+# Use threads instead of solo pool (alternative for Windows)
+APP_CELERY_WORKER_POOL=threads
+APP_CELERY_WORKER_CONCURRENCY=4
+
+# Or force prefork pool (may cause permission errors)
+APP_CELERY_WORKER_POOL=prefork
+APP_CELERY_WORKER_CONCURRENCY=2
+```
+
+### Troubleshooting Windows Issues
+
+If you encounter `PermissionError: [WinError 5] Access is denied` errors:
+
+1. **Use the default configuration**: The application automatically uses `solo` pool on Windows
+2. **Run as Administrator**: Try running your terminal/IDE as Administrator
+3. **Use threads pool**: Set `APP_CELERY_WORKER_POOL=threads` in your `.env` file
+4. **Check antivirus**: Some antivirus software may block process creation
+
+### Windows-specific `.env` example:
+
+```bash
+APP_REDIS_URL=redis://localhost:6379/0
+APP_CORS_ALLOW_ORIGINS=["http://localhost","http://localhost:3000"]
+# Windows-specific Celery configuration
+APP_CELERY_WORKER_POOL=solo
+APP_CELERY_WORKER_CONCURRENCY=1
+```
