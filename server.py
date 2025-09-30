@@ -46,11 +46,30 @@ except ImportError:
 from collections import defaultdict
 from logging.handlers import RotatingFileHandler
 
-# MediaPipe lazy import flags (to allow env vars to be set before import)
+# Face detection lazy import flags (to allow env vars to be set before import)
 _MEDIAPIPE_IMPORT_TRIED = False
 _MEDIAPIPE_AVAILABLE = False
 mp = None  # type: ignore
 _FACE_DETECTOR = None  # type: ignore
+
+# OpenCV face detection state
+_OPENCV_IMPORT_TRIED = False
+_OPENCV_AVAILABLE = False
+cv2 = None  # type: ignore
+_HAAR_CASCADE = None  # type: ignore
+_DNN_FACE_DETECTOR = None  # type: ignore
+
+# RetinaFace state
+_RETINAFACE_IMPORT_TRIED = False
+_RETINAFACE_AVAILABLE = False
+retinaface = None  # type: ignore
+_RETINAFACE_DETECTOR = None  # type: ignore
+
+# MTCNN state
+_MTCNN_IMPORT_TRIED = False
+_MTCNN_AVAILABLE = False
+mtcnn = None  # type: ignore
+_MTCNN_DETECTOR = None  # type: ignore
 
 def _configure_logging():
     handlers = [logging.StreamHandler()]
@@ -850,13 +869,7 @@ class CollageGenerator:
             try:
                 faces = self._detect_faces(canvas)
                 if faces:
-                    # Draw green boxes around detected faces
-                    draw = ImageDraw.Draw(canvas)
-                    for (x1, y1, x2, y2, score) in faces:
-                        # Draw rectangle with green color, thickness 3
-                        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
-                        # Optionally add score text
-                        draw.text((x1, y1 - 15), f"Face {score:.2f}", fill=(0, 255, 0))
+                    canvas = self._debug_visualize_faces(canvas, faces)
             except Exception as e:
                 print(f"Error drawing face debug boxes: {e}")
 
@@ -897,34 +910,10 @@ class CollageGenerator:
             except Exception:
                 faces = []
             if faces:
-                # Weighted center by area and score
-                weights = []
-                centers_x = []
-                centers_y = []
-                for (x1, y1, x2, y2, score) in faces:
-                    area = max(1, (x2 - x1)) * max(1, (y2 - y1))
-                    w = max(1e-3, area * max(1e-3, score))
-                    cx = x1 + (x2 - x1) / 2.0
-                    cy = y1 + (y2 - y1) / 2.0
-                    weights.append(w)
-                    centers_x.append(cx * w)
-                    centers_y.append(cy * w)
-                sum_w = sum(weights)
-                if sum_w > 0:
-                    center_x = sum(centers_x) / sum_w
-                    center_y = sum(centers_y) / sum_w
-                else:
-                    center_x = new_w / 2.0
-                    center_y = new_h / 2.0
-
-                # Compute crop window around weighted center
-                left = int(round(center_x - (target_width / 2.0)))
-                top = int(round(center_y - (target_height / 2.0)))
-                left = max(0, min(left, new_w - target_width))
-                top = max(0, min(top, new_h - target_height))
-                right = left + target_width
-                bottom = top + target_height
-                return img.crop((left, top, right, bottom))
+                # Enhanced face-aware cropping with better positioning
+                cropped_img = self._smart_face_crop(img, faces, target_width, target_height)
+                if cropped_img:
+                    return cropped_img
 
         # Fallback: Center-crop to the exact target size
         left = max(0, (new_w - target_width) // 2)
@@ -1028,15 +1017,254 @@ class CollageGenerator:
         return (255, 255, 255, 255)
 
     def _detect_faces(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
-        """Detect faces using MediaPipe; returns list of (x1, y1, x2, y2, score) in pixel coords.
-
-        Runs on the provided image dimensions. Expects RGB PIL image.
+        """Detect faces using ensemble of multiple detection methods.
+        
+        Uses OpenCV DNN, MTCNN, and MediaPipe for robust detection.
+        Returns list of (x1, y1, x2, y2, score) in pixel coordinates.
         """
+        all_detections = []
+        
+        # Try OpenCV DNN face detection first (most reliable)
+        opencv_detections = self._detect_faces_opencv_dnn(img)
+        all_detections.extend(opencv_detections)
+        
+        # Try MTCNN for additional coverage
+        mtcnn_detections = self._detect_faces_mtcnn(img)
+        all_detections.extend(mtcnn_detections)
+        
+        # Fallback to MediaPipe if others fail
+        if not all_detections:
+            mediapipe_detections = self._detect_faces_mediapipe(img)
+            all_detections.extend(mediapipe_detections)
+        
+        # Remove duplicates and merge overlapping detections
+        return self._merge_face_detections(all_detections, img.width, img.height)
+    
+    
+    def _detect_faces_opencv_dnn(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
+        """Detect faces using OpenCV DNN face detection model."""
+        global _OPENCV_IMPORT_TRIED, _OPENCV_AVAILABLE, cv2, _DNN_FACE_DETECTOR
+        
+        if not _OPENCV_IMPORT_TRIED:
+            try:
+                import cv2  # type: ignore
+                _OPENCV_AVAILABLE = True
+            except Exception:
+                cv2 = None  # type: ignore
+                _OPENCV_AVAILABLE = False
+            _OPENCV_IMPORT_TRIED = True
+        
+        if not _OPENCV_AVAILABLE or cv2 is None:
+            return []
+        
+        # Initialize DNN face detector if not already done
+        if _DNN_FACE_DETECTOR is None:
+            try:
+                # Try to use OpenCV DNN face detection model first
+                try:
+                    # Download DNN model files if not present
+                    model_path = "opencv_face_detector_uint8.pb"
+                    config_path = "opencv_face_detector.pbtxt"
+                    
+                    if not os.path.exists(model_path) or not os.path.exists(config_path):
+                        # Use Haar cascade as fallback
+                        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                        if os.path.exists(cascade_path):
+                            _DNN_FACE_DETECTOR = cv2.CascadeClassifier(cascade_path)
+                        else:
+                            return []
+                    else:
+                        # Use DNN model
+                        _DNN_FACE_DETECTOR = cv2.dnn.readNetFromTensorflow(model_path, config_path)
+                except Exception:
+                    # Fallback to Haar cascade
+                    cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                    if os.path.exists(cascade_path):
+                        _DNN_FACE_DETECTOR = cv2.CascadeClassifier(cascade_path)
+                    else:
+                        return []
+            except Exception:
+                return []
+        
+        try:
+            # Convert PIL to OpenCV format
+            np_img = np.asarray(img)
+            if np_img.ndim == 2:
+                np_img = np.stack([np_img] * 3, axis=-1)
+            if np_img.shape[2] == 4:
+                np_img = np_img[:, :, :3]
+            
+            # Convert RGB to BGR for OpenCV
+            cv_img = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+            gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+            
+            # Detect faces with balanced parameters
+            if isinstance(_DNN_FACE_DETECTOR, cv2.CascadeClassifier):
+                # Haar cascade detection
+                faces = _DNN_FACE_DETECTOR.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,  # Back to original
+                    minNeighbors=5,   # Back to original
+                    minSize=(30, 30), # Back to original
+                    flags=cv2.CASCADE_SCALE_IMAGE
+                )
+            else:
+                # DNN model detection
+                blob = cv2.dnn.blobFromImage(cv_img, 1.0, (300, 300), [104, 117, 123])
+                _DNN_FACE_DETECTOR.setInput(blob)
+                detections = _DNN_FACE_DETECTOR.forward()
+                
+                faces = []
+                h, w = cv_img.shape[:2]
+                for i in range(detections.shape[2]):
+                    confidence = detections[0, 0, i, 2]
+                    if confidence > 0.5:  # Higher confidence threshold
+                        x1 = int(detections[0, 0, i, 3] * w)
+                        y1 = int(detections[0, 0, i, 4] * h)
+                        x2 = int(detections[0, 0, i, 5] * w)
+                        y2 = int(detections[0, 0, i, 6] * h)
+                        faces.append((x1, y1, x2-x1, y2-y1))
+            
+            detections = []
+            for (x, y, w, h) in faces:
+                # Add margin
+                margin = getattr(self.config, 'face_margin', 0.08)
+                margin_x = int(w * margin)
+                margin_y = int(h * margin)
+                
+                x1 = max(0, x - margin_x)
+                y1 = max(0, y - margin_y)
+                x2 = min(img.width, x + w + margin_x)
+                y2 = min(img.height, y + h + margin_y)
+                
+                # Calculate confidence based on face size and position
+                face_area = w * h
+                img_area = img.width * img.height
+                confidence = min(0.9, 0.5 + (face_area / img_area) * 2)
+                
+                detections.append((x1, y1, x2, y2, confidence))
+            
+            return detections
+        except Exception:
+            return []
+    
+    def _detect_faces_retinaface(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
+        """Detect faces using RetinaFace model."""
+        global _RETINAFACE_IMPORT_TRIED, _RETINAFACE_AVAILABLE, retinaface, _RETINAFACE_DETECTOR
+        
+        if not _RETINAFACE_IMPORT_TRIED:
+            try:
+                from retinaface import RetinaFace  # type: ignore
+                retinaface = RetinaFace
+                _RETINAFACE_AVAILABLE = True
+            except Exception:
+                retinaface = None  # type: ignore
+                _RETINAFACE_AVAILABLE = False
+            _RETINAFACE_IMPORT_TRIED = True
+        
+        if not _RETINAFACE_AVAILABLE or retinaface is None:
+            return []
+        
+        try:
+            # Convert PIL to numpy array
+            np_img = np.asarray(img)
+            if np_img.ndim == 2:
+                np_img = np.stack([np_img] * 3, axis=-1)
+            if np_img.shape[2] == 4:
+                np_img = np_img[:, :, :3]
+            
+            # Detect faces
+            result = retinaface.detect_faces(np_img)
+            
+            detections = []
+            if result:
+                for face_key, face_data in result.items():
+                    if 'facial_area' in face_data:
+                        x1, y1, x2, y2 = face_data['facial_area']
+                        confidence = face_data.get('score', 0.8)
+                        
+                        # Add margin
+                        margin = getattr(self.config, 'face_margin', 0.08)
+                        w, h = x2 - x1, y2 - y1
+                        margin_x = int(w * margin)
+                        margin_y = int(h * margin)
+                        
+                        x1 = max(0, x1 - margin_x)
+                        y1 = max(0, y1 - margin_y)
+                        x2 = min(img.width, x2 + margin_x)
+                        y2 = min(img.height, y2 + margin_y)
+                        
+                        detections.append((x1, y1, x2, y2, confidence))
+            
+            return detections
+        except Exception:
+            return []
+    
+    def _detect_faces_mtcnn(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
+        """Detect faces using MTCNN model."""
+        global _MTCNN_IMPORT_TRIED, _MTCNN_AVAILABLE, mtcnn, _MTCNN_DETECTOR
+        
+        if not _MTCNN_IMPORT_TRIED:
+            try:
+                from mtcnn import MTCNN  # type: ignore
+                mtcnn = MTCNN
+                _MTCNN_AVAILABLE = True
+            except Exception:
+                mtcnn = None  # type: ignore
+                _MTCNN_AVAILABLE = False
+            _MTCNN_IMPORT_TRIED = True
+        
+        if not _MTCNN_AVAILABLE or mtcnn is None:
+            return []
+        
+        # Initialize MTCNN detector if not already done
+        if _MTCNN_DETECTOR is None:
+            try:
+                _MTCNN_DETECTOR = mtcnn(min_face_size=40, thresholds=[0.7, 0.8, 0.8])
+            except Exception:
+                return []
+        
+        try:
+            # Convert PIL to numpy array
+            np_img = np.asarray(img)
+            if np_img.ndim == 2:
+                np_img = np.stack([np_img] * 3, axis=-1)
+            if np_img.shape[2] == 4:
+                np_img = np_img[:, :, :3]
+            
+            # Detect faces
+            result = _MTCNN_DETECTOR.detect_faces(np_img)
+            
+            detections = []
+            for face in result:
+                if 'box' in face and 'confidence' in face:
+                    x, y, w, h = face['box']
+                    confidence = face['confidence']
+                    
+                    # Add margin
+                    margin = getattr(self.config, 'face_margin', 0.08)
+                    margin_x = int(w * margin)
+                    margin_y = int(h * margin)
+                    
+                    x1 = max(0, x - margin_x)
+                    y1 = max(0, y - margin_y)
+                    x2 = min(img.width, x + w + margin_x)
+                    y2 = min(img.height, y + h + margin_y)
+                    
+                    detections.append((x1, y1, x2, y2, confidence))
+            
+            return detections
+        except Exception:
+            return []
+    
+    def _detect_faces_mediapipe(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
+        """Detect faces using MediaPipe (fallback method)."""
         global _MEDIAPIPE_IMPORT_TRIED, _MEDIAPIPE_AVAILABLE, mp, _FACE_DETECTOR
+        
         if not _MEDIAPIPE_IMPORT_TRIED:
             # Reduce TensorFlow/absl/glog verbosity prior to importing mediapipe
-            os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # 0=all,1=INFO,2=WARNING,3=ERROR
-            os.environ.setdefault("GLOG_minloglevel", "3")       # 0=INFO,1=WARNING,2=ERROR,3=FATAL
+            os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+            os.environ.setdefault("GLOG_minloglevel", "3")
             os.environ.setdefault("absl_logging_minloglevel", "3")
             try:
                 import mediapipe as mp  # type: ignore
@@ -1051,8 +1279,9 @@ class CollageGenerator:
                 _MEDIAPIPE_AVAILABLE = False
             _MEDIAPIPE_IMPORT_TRIED = True
 
-        if not _MEDIAPIPE_AVAILABLE or mp is None:  # type: ignore
+        if not _MEDIAPIPE_AVAILABLE or mp is None:
             return []
+        
         np_img = np.asarray(img)
         # Ensure 3-channel RGB
         if np_img.ndim == 2:
@@ -1063,12 +1292,12 @@ class CollageGenerator:
         h, w = np_img.shape[0], np_img.shape[1]
         detections_out: List[Tuple[int, int, int, int, float]] = []
 
-        # Reuse a single detector instance to avoid repeated init (and repeated warnings)
+        # Reuse a single detector instance to avoid repeated init
         if _FACE_DETECTOR is None:
             try:
-                _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(  # type: ignore
-                    model_selection=1,
-                    min_detection_confidence=0.5,
+                _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(
+                    model_selection=1,  # Back to long-range model
+                    min_detection_confidence=0.5,  # Higher threshold
                 )
             except Exception:
                 _FACE_DETECTOR = None
@@ -1076,22 +1305,22 @@ class CollageGenerator:
 
         results = None
         try:
-            results = _FACE_DETECTOR.process(np_img)  # type: ignore
+            results = _FACE_DETECTOR.process(np_img)
         except Exception:
             # Try to recreate once if detector got into a bad state
             try:
-                _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(  # type: ignore
+                _FACE_DETECTOR = mp.solutions.face_detection.FaceDetection(
                     model_selection=1,
                     min_detection_confidence=0.5,
                 )
-                results = _FACE_DETECTOR.process(np_img)  # type: ignore
+                results = _FACE_DETECTOR.process(np_img)
             except Exception:
                 return []
 
         if not results or not getattr(results, 'detections', None):
             return []
 
-        for det in results.detections:  # type: ignore
+        for det in results.detections:
             score = float(det.score[0]) if det.score else 0.0
             rel = det.location_data.relative_bounding_box
             x = max(0.0, float(rel.xmin)) * w
@@ -1113,6 +1342,186 @@ class CollageGenerator:
                 y2 = min(h, y2 + my)
                 detections_out.append((x1, y1, x2, y2, score))
         return detections_out
+    
+    def _merge_face_detections(self, detections: List[Tuple[int, int, int, int, float]], 
+                              img_width: int, img_height: int) -> List[Tuple[int, int, int, int, float]]:
+        """Merge overlapping face detections and remove duplicates."""
+        if not detections:
+            return []
+        
+        # Sort by confidence (highest first)
+        detections.sort(key=lambda x: x[4], reverse=True)
+        
+        merged = []
+        for detection in detections:
+            x1, y1, x2, y2, conf = detection
+            
+            # Check if this detection overlaps significantly with any existing detection
+            is_duplicate = False
+            for existing in merged:
+                ex1, ey1, ex2, ey2, _ = existing
+                
+                # Calculate intersection
+                ix1 = max(x1, ex1)
+                iy1 = max(y1, ey1)
+                ix2 = min(x2, ex2)
+                iy2 = min(y2, ey2)
+                
+                if ix1 < ix2 and iy1 < iy2:
+                    intersection_area = (ix2 - ix1) * (iy2 - iy1)
+                    current_area = (x2 - x1) * (y2 - y1)
+                    existing_area = (ex2 - ex1) * (ey2 - ey1)
+                    
+                    # Conservative overlap threshold
+                    if intersection_area > 0.3 * min(current_area, existing_area):
+                        is_duplicate = True
+                        break
+            
+            if not is_duplicate:
+                merged.append(detection)
+        
+        return merged
+    
+    def _smart_face_crop(self, img: Image.Image, faces: List[Tuple[int, int, int, int, float]], 
+                        target_width: int, target_height: int) -> Image.Image:
+        """Enhanced face-aware cropping with intelligent positioning."""
+        if not faces:
+            return None
+        
+        img_w, img_h = img.width, img.height
+        
+        # Calculate optimal crop region
+        if len(faces) == 1:
+            # Single face: center on the face with smart margins
+            x1, y1, x2, y2, score = faces[0]
+            face_w, face_h = x2 - x1, y2 - y1
+            face_center_x = (x1 + x2) / 2
+            face_center_y = (y1 + y2) / 2
+            
+            # Calculate margins based on face size and target aspect ratio
+            target_aspect = target_width / target_height
+            face_aspect = face_w / face_h
+            
+            # Adjust margins to maintain good composition
+            if face_aspect > target_aspect:
+                # Face is wider than target, add more vertical margin
+                margin_x = max(face_w * 0.2, target_width * 0.1)
+                margin_y = max(face_h * 0.3, target_height * 0.15)
+            else:
+                # Face is taller than target, add more horizontal margin
+                margin_x = max(face_w * 0.3, target_width * 0.15)
+                margin_y = max(face_h * 0.2, target_height * 0.1)
+            
+            # Calculate crop bounds
+            crop_left = max(0, int(face_center_x - target_width / 2))
+            crop_top = max(0, int(face_center_y - target_height / 2))
+            crop_right = min(img_w, crop_left + target_width)
+            crop_bottom = min(img_h, crop_top + target_height)
+            
+            # Adjust if we hit image boundaries
+            if crop_right - crop_left < target_width:
+                if crop_left == 0:
+                    crop_right = min(img_w, target_width)
+                else:
+                    crop_left = max(0, crop_right - target_width)
+            
+            if crop_bottom - crop_top < target_height:
+                if crop_top == 0:
+                    crop_bottom = min(img_h, target_height)
+                else:
+                    crop_top = max(0, crop_bottom - target_height)
+        
+        else:
+            # Multiple faces: find optimal crop that includes all faces
+            min_x = min(face[0] for face in faces)
+            min_y = min(face[1] for face in faces)
+            max_x = max(face[2] for face in faces)
+            max_y = max(face[3] for face in faces)
+            
+            # Add padding around all faces
+            face_area_w = max_x - min_x
+            face_area_h = max_y - min_y
+            padding_x = max(face_area_w * 0.2, target_width * 0.1)
+            padding_y = max(face_area_h * 0.2, target_height * 0.1)
+            
+            # Calculate crop bounds
+            crop_left = max(0, int(min_x - padding_x))
+            crop_top = max(0, int(min_y - padding_y))
+            crop_right = min(img_w, int(max_x + padding_x))
+            crop_bottom = min(img_h, int(max_y + padding_y))
+            
+            # Ensure we have the target dimensions
+            current_w = crop_right - crop_left
+            current_h = crop_bottom - crop_top
+            
+            if current_w < target_width:
+                # Expand horizontally
+                needed_w = target_width - current_w
+                if crop_left > 0:
+                    expand_left = min(crop_left, needed_w // 2)
+                    crop_left -= expand_left
+                    needed_w -= expand_left
+                if crop_right < img_w and needed_w > 0:
+                    crop_right = min(img_w, crop_right + needed_w)
+            
+            if current_h < target_height:
+                # Expand vertically
+                needed_h = target_height - current_h
+                if crop_top > 0:
+                    expand_top = min(crop_top, needed_h // 2)
+                    crop_top -= expand_top
+                    needed_h -= expand_top
+                if crop_bottom < img_h and needed_h > 0:
+                    crop_bottom = min(img_h, crop_bottom + needed_h)
+            
+            # Final size check and adjustment
+            final_w = crop_right - crop_left
+            final_h = crop_bottom - crop_top
+            
+            if final_w > target_width:
+                # Center horizontally
+                excess_w = final_w - target_width
+                crop_left += excess_w // 2
+                crop_right = crop_left + target_width
+            
+            if final_h > target_height:
+                # Center vertically
+                excess_h = final_h - target_height
+                crop_top += excess_h // 2
+                crop_bottom = crop_top + target_height
+        
+        # Ensure valid crop bounds
+        crop_left = max(0, min(crop_left, img_w - target_width))
+        crop_top = max(0, min(crop_top, img_h - target_height))
+        crop_right = crop_left + target_width
+        crop_bottom = crop_top + target_height
+        
+        return img.crop((crop_left, crop_top, crop_right, crop_bottom))
+    
+    def _debug_visualize_faces(self, img: Image.Image, faces: List[Tuple[int, int, int, int, float]]) -> Image.Image:
+        """Add debug visualization for detected faces."""
+        if not getattr(self.config, 'debug_faces', False) or not faces:
+            return img
+        
+        try:
+            # Create a copy for debugging
+            debug_img = img.copy()
+            from PIL import ImageDraw
+            
+            draw = ImageDraw.Draw(debug_img)
+            
+            for i, (x1, y1, x2, y2, score) in enumerate(faces):
+                # Draw bounding box
+                color = (255, 0, 0) if score > 0.7 else (255, 165, 0) if score > 0.5 else (255, 255, 0)
+                draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+                
+                # Draw confidence score
+                text = f"Face {i+1}: {score:.2f}"
+                draw.text((x1, y1-20), text, fill=color)
+            
+            return debug_img
+        except Exception:
+            return img
 
     def _trim_borders(self, img: Image.Image) -> Image.Image:
         """Trim solid uniform borders (e.g., black bars) from edges conservatively.
