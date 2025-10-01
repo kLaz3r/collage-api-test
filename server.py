@@ -2180,7 +2180,7 @@ async def preview_collage(
                 raise HTTPException(status_code=400, detail=f"Failed to process {safe_filename}")
 
             # Convert path to POSIX format for cross-platform compatibility
-        image_paths.append(str(file_path.as_posix()))
+            image_paths.append(str(file_path.as_posix()))
 
         # Build pixel-based config for preview canvas
         config = _PreviewPixelConfig(
@@ -2316,7 +2316,7 @@ async def preview_collage_pixels(
                 raise HTTPException(status_code=400, detail=f"Failed to process {safe_filename}")
 
             # Convert path to POSIX format for cross-platform compatibility
-        image_paths.append(str(file_path.as_posix()))
+            image_paths.append(str(file_path.as_posix()))
 
         config = _PreviewPixelConfig(
             width_px=prev_w,
