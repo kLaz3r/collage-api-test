@@ -11,6 +11,7 @@ python-magic==0.4.27
 mediapipe
 opencv-python
 mtcnn
+retina-face
 
 # Metrics
 prometheus-client==0.20.0

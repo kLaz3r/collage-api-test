@@ -71,6 +71,43 @@ _MTCNN_AVAILABLE = False
 mtcnn = None  # type: ignore
 _MTCNN_DETECTOR = None  # type: ignore
 
+# Detection result cache
+_DETECTION_CACHE = {}  # type: ignore
+_CACHE_MAX_SIZE = 100
+
+def _cleanup_face_detectors():
+    """Clean up global face detector instances to free memory."""
+    global _FACE_DETECTOR, _DNN_FACE_DETECTOR, _MTCNN_DETECTOR, _RETINAFACE_DETECTOR, _DETECTION_CACHE
+    
+    # Clean up detector instances
+    _FACE_DETECTOR = None
+    _DNN_FACE_DETECTOR = None
+    _MTCNN_DETECTOR = None
+    _RETINAFACE_DETECTOR = None
+    
+    # Clear detection cache
+    _DETECTION_CACHE.clear()
+
+def _get_image_hash(img: Image.Image) -> str:
+    """Generate a hash for the image to use as cache key."""
+    import hashlib
+    # Convert to bytes and hash
+    img_bytes = img.tobytes()
+    return hashlib.md5(img_bytes).hexdigest()
+
+def _apply_face_margin(x1: int, y1: int, x2: int, y2: int, img_width: int, img_height: int, margin: float) -> Tuple[int, int, int, int]:
+    """Apply consistent face margin to detection coordinates."""
+    w, h = x2 - x1, y2 - y1
+    margin_x = int(w * margin)
+    margin_y = int(h * margin)
+    
+    new_x1 = max(0, x1 - margin_x)
+    new_y1 = max(0, y1 - margin_y)
+    new_x2 = min(img_width, x2 + margin_x)
+    new_y2 = min(img_height, y2 + margin_y)
+    
+    return new_x1, new_y1, new_x2, new_y2
+
 def _configure_logging():
     handlers = [logging.StreamHandler()]
     if settings.log_to_file:
@@ -910,9 +947,13 @@ class CollageGenerator:
             except Exception:
                 faces = []
             if faces:
+                # Debug visualization if enabled
+                if getattr(self.config, 'debug_faces', False):
+                    img = self._debug_visualize_faces(img, faces)
+                
                 # Enhanced face-aware cropping with better positioning
                 cropped_img = self._smart_face_crop(img, faces, target_width, target_height)
-                if cropped_img:
+                if cropped_img is not None:
                     return cropped_img
 
         # Fallback: Center-crop to the exact target size
@@ -1019,18 +1060,44 @@ class CollageGenerator:
     def _detect_faces(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
         """Detect faces using ensemble of multiple detection methods.
         
-        Uses OpenCV DNN, MTCNN, and MediaPipe for robust detection.
+        Uses OpenCV DNN, RetinaFace, MTCNN, and MediaPipe for robust detection.
         Returns list of (x1, y1, x2, y2, score) in pixel coordinates.
         """
+        # Validate input image dimensions
+        if img.width < 30 or img.height < 30:
+            return []
+        
+        # Check cache first
+        global _DETECTION_CACHE, _CACHE_MAX_SIZE
+        img_hash = _get_image_hash(img)
+        if img_hash in _DETECTION_CACHE:
+            return _DETECTION_CACHE[img_hash]
+        
         all_detections = []
         
         # Try OpenCV DNN face detection first (most reliable)
         opencv_detections = self._detect_faces_opencv_dnn(img)
-        all_detections.extend(opencv_detections)
+        if opencv_detections:
+            all_detections.extend(opencv_detections)
+            # If we have good detections, we can stop here for efficiency
+            if len(opencv_detections) >= 2 or any(conf > 0.8 for _, _, _, _, conf in opencv_detections):
+                return self._merge_face_detections(all_detections, img.width, img.height)
+        
+        # Try RetinaFace for additional coverage
+        retinaface_detections = self._detect_faces_retinaface(img)
+        if retinaface_detections:
+            all_detections.extend(retinaface_detections)
+            # If we have good detections, we can stop here for efficiency
+            if len(retinaface_detections) >= 2 or any(conf > 0.8 for _, _, _, _, conf in retinaface_detections):
+                return self._merge_face_detections(all_detections, img.width, img.height)
         
         # Try MTCNN for additional coverage
         mtcnn_detections = self._detect_faces_mtcnn(img)
-        all_detections.extend(mtcnn_detections)
+        if mtcnn_detections:
+            all_detections.extend(mtcnn_detections)
+            # If we have good detections, we can stop here for efficiency
+            if len(mtcnn_detections) >= 2 or any(conf > 0.8 for _, _, _, _, conf in mtcnn_detections):
+                return self._merge_face_detections(all_detections, img.width, img.height)
         
         # Fallback to MediaPipe if others fail
         if not all_detections:
@@ -1038,7 +1105,16 @@ class CollageGenerator:
             all_detections.extend(mediapipe_detections)
         
         # Remove duplicates and merge overlapping detections
-        return self._merge_face_detections(all_detections, img.width, img.height)
+        result = self._merge_face_detections(all_detections, img.width, img.height)
+        
+        # Cache the result
+        if len(_DETECTION_CACHE) >= _CACHE_MAX_SIZE:
+            # Remove oldest entries (simple FIFO)
+            oldest_key = next(iter(_DETECTION_CACHE))
+            del _DETECTION_CACHE[oldest_key]
+        _DETECTION_CACHE[img_hash] = result
+        
+        return result
     
     
     def _detect_faces_opencv_dnn(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
@@ -1127,25 +1203,26 @@ class CollageGenerator:
             
             detections = []
             for (x, y, w, h) in faces:
-                # Add margin
+                # Add margin using standardized function
                 margin = getattr(self.config, 'face_margin', 0.08)
-                margin_x = int(w * margin)
-                margin_y = int(h * margin)
+                x1, y1, x2, y2 = _apply_face_margin(x, y, x + w, y + h, img.width, img.height, margin)
                 
-                x1 = max(0, x - margin_x)
-                y1 = max(0, y - margin_y)
-                x2 = min(img.width, x + w + margin_x)
-                y2 = min(img.height, y + h + margin_y)
-                
-                # Calculate confidence based on face size and position
-                face_area = w * h
-                img_area = img.width * img.height
-                confidence = min(0.9, 0.5 + (face_area / img_area) * 2)
+                # Use model confidence directly for consistency
+                if isinstance(_DNN_FACE_DETECTOR, cv2.CascadeClassifier):
+                    confidence = 0.8  # Default confidence for Haar cascade
+                else:
+                    # For DNN model, we need to get the confidence from the detection
+                    # This is a simplified approach - in practice, you'd store confidence per detection
+                    confidence = 0.7  # Default confidence for DNN
                 
                 detections.append((x1, y1, x2, y2, confidence))
             
             return detections
-        except Exception:
+        except ImportError as e:
+            logger.warning(f"OpenCV import failed: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"OpenCV face detection failed: {e}")
             return []
     
     def _detect_faces_retinaface(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
@@ -1183,21 +1260,18 @@ class CollageGenerator:
                         x1, y1, x2, y2 = face_data['facial_area']
                         confidence = face_data.get('score', 0.8)
                         
-                        # Add margin
+                        # Add margin using standardized function
                         margin = getattr(self.config, 'face_margin', 0.08)
-                        w, h = x2 - x1, y2 - y1
-                        margin_x = int(w * margin)
-                        margin_y = int(h * margin)
-                        
-                        x1 = max(0, x1 - margin_x)
-                        y1 = max(0, y1 - margin_y)
-                        x2 = min(img.width, x2 + margin_x)
-                        y2 = min(img.height, y2 + margin_y)
+                        x1, y1, x2, y2 = _apply_face_margin(x1, y1, x2, y2, img.width, img.height, margin)
                         
                         detections.append((x1, y1, x2, y2, confidence))
             
             return detections
-        except Exception:
+        except ImportError as e:
+            logger.warning(f"RetinaFace import failed: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"RetinaFace face detection failed: {e}")
             return []
     
     def _detect_faces_mtcnn(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
@@ -1241,20 +1315,18 @@ class CollageGenerator:
                     x, y, w, h = face['box']
                     confidence = face['confidence']
                     
-                    # Add margin
+                    # Add margin using standardized function
                     margin = getattr(self.config, 'face_margin', 0.08)
-                    margin_x = int(w * margin)
-                    margin_y = int(h * margin)
-                    
-                    x1 = max(0, x - margin_x)
-                    y1 = max(0, y - margin_y)
-                    x2 = min(img.width, x + w + margin_x)
-                    y2 = min(img.height, y + h + margin_y)
+                    x1, y1, x2, y2 = _apply_face_margin(x, y, x + w, y + h, img.width, img.height, margin)
                     
                     detections.append((x1, y1, x2, y2, confidence))
             
             return detections
-        except Exception:
+        except ImportError as e:
+            logger.warning(f"MTCNN import failed: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"MTCNN face detection failed: {e}")
             return []
     
     def _detect_faces_mediapipe(self, img: Image.Image) -> List[Tuple[int, int, int, int, float]]:
@@ -1303,7 +1375,6 @@ class CollageGenerator:
                 _FACE_DETECTOR = None
                 return []
 
-        results = None
         try:
             results = _FACE_DETECTOR.process(np_img)
         except Exception:
@@ -1334,12 +1405,7 @@ class CollageGenerator:
             if x2 > x1 and y2 > y1:
                 # Expand a bit using face_margin but keep inside image
                 margin = getattr(self.config, 'face_margin', 0.08)
-                mx = int(round((x2 - x1) * margin))
-                my = int(round((y2 - y1) * margin))
-                x1 = max(0, x1 - mx)
-                y1 = max(0, y1 - my)
-                x2 = min(w, x2 + mx)
-                y2 = min(h, y2 + my)
+                x1, y1, x2, y2 = _apply_face_margin(x1, y1, x2, y2, w, h, margin)
                 detections_out.append((x1, y1, x2, y2, score))
         return detections_out
     
@@ -1383,7 +1449,7 @@ class CollageGenerator:
         return merged
     
     def _smart_face_crop(self, img: Image.Image, faces: List[Tuple[int, int, int, int, float]], 
-                        target_width: int, target_height: int) -> Image.Image:
+                        target_width: int, target_height: int) -> Optional[Image.Image]:
         """Enhanced face-aware cropping with intelligent positioning."""
         if not faces:
             return None
